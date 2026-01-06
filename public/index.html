@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oyodo Push Service</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Oyodo Push Service</h1>
+            <p class="subtitle">Web Push 通知代理服務</p>
+        </header>
+
+        <section class="subscription-section">
+            <div class="status-card">
+                <div class="status-indicator" id="statusIndicator"></div>
+                <span id="statusText">檢查中...</span>
+            </div>
+            
+            <button id="subscribeBtn" class="btn btn-primary" disabled>
+                訂閱通知
+            </button>
+        </section>
+
+        <section class="detail-section" id="detailSection" style="display: none;">
+            <h2>通知詳情</h2>
+            <div class="detail-card" id="detailCard">
+                <h3 id="detailTitle"></h3>
+                <p id="detailBody"></p>
+                <div class="detail-content" id="detailContent"></div>
+                <time id="detailTime"></time>
+            </div>
+            <button class="btn btn-secondary" id="closeDetailBtn">關閉</button>
+        </section>
+
+        <section class="history-section">
+            <h2>通知歷史</h2>
+            <div id="notificationList" class="notification-list">
+                <p class="empty-state">尚無通知記錄</p>
+            </div>
+        </section>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

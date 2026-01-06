@@ -1,0 +1,18 @@
+{
+  "name": "oyodo-push-service",
+  "version": "0.1.0",
+  "description": "Web Push notification proxy service",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "generate-vapid": "node -e \"const wp = require('web-push'); const keys = wp.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY=' + keys.publicKey); console.log('VAPID_PRIVATE_KEY=' + keys.privateKey);\""
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "web-push": "^3.6.7",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.1",
+    "mysql2": "^3.6.5"
+  }
+}
