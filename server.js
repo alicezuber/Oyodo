@@ -134,14 +134,12 @@ app.post('/api/notify', apiKeyAuth, async (req, res) => {
     const notificationId = uuidv4();
     
     try {
-        if (detail) {
-            await saveNotification(notificationId, title, body, detail);
-        }
+        await saveNotification(notificationId, title, body, detail || null);
         
         const payload = JSON.stringify({
             title,
             body,
-            notificationId: detail ? notificationId : null
+            notificationId
         });
         
         const subscriptions = await getSubscriptions();

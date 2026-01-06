@@ -1,20 +1,39 @@
 const subscribeBtn = document.getElementById('subscribeBtn');
-const statusIndicator = document.getElementById('statusIndicator');
+const statusBadge = document.getElementById('statusBadge');
 const statusText = document.getElementById('statusText');
-const detailSection = document.getElementById('detailSection');
+const detailModal = document.getElementById('detailModal');
 const detailTitle = document.getElementById('detailTitle');
 const detailBody = document.getElementById('detailBody');
 const detailContent = document.getElementById('detailContent');
 const detailTime = document.getElementById('detailTime');
 const closeDetailBtn = document.getElementById('closeDetailBtn');
 const notificationList = document.getElementById('notificationList');
+const recentList = document.getElementById('recentList');
+const statTotal = document.getElementById('statTotal');
+const statToday = document.getElementById('statToday');
+
+const sendForm = document.getElementById('sendForm');
+const apiKeyInput = document.getElementById('apiKeyInput');
+const titleInput = document.getElementById('titleInput');
+const bodyInput = document.getElementById('bodyInput');
+const detailInput = document.getElementById('detailInput');
+const titleCount = document.getElementById('titleCount');
+const bodyCount = document.getElementById('bodyCount');
+const detailCount = document.getElementById('detailCount');
+const toggleApiKey = document.getElementById('toggleApiKey');
+const sendResult = document.getElementById('sendResult');
+const sendBtn = document.getElementById('sendBtn');
 
 let swRegistration = null;
 let isSubscribed = false;
+let allNotifications = [];
 
 async function init() {
+    initTabs();
+    initSendForm();
+    
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        updateStatus('unsupported', '瀏覽器不支援 Web Push');
+        updateStatus('unsupported', '不支援推播');
         return;
     }
 
@@ -26,22 +45,137 @@ async function init() {
         isSubscribed = subscription !== null;
         updateUI();
 
+        await loadNotificationHistory();
         checkUrlForNotification();
-        loadNotificationHistory();
     } catch (err) {
         console.error('Init failed:', err);
         updateStatus('unsupported', '初始化失敗');
     }
 }
 
+function initTabs() {
+    const tabItems = document.querySelectorAll('.tab-item');
+    const tabPanes = document.querySelectorAll('.tab-pane');
+    
+    tabItems.forEach(item => {
+        item.addEventListener('click', () => {
+            const tabId = item.dataset.tab;
+            
+            tabItems.forEach(t => t.classList.remove('active'));
+            tabPanes.forEach(p => p.classList.remove('active'));
+            
+            item.classList.add('active');
+            document.getElementById(tabId + 'Pane').classList.add('active');
+        });
+    });
+}
+
+function initSendForm() {
+    const savedApiKey = localStorage.getItem('oyodo_api_key');
+    if (savedApiKey) {
+        apiKeyInput.value = savedApiKey;
+    }
+    
+    titleInput.addEventListener('input', () => {
+        titleCount.textContent = titleInput.value.length;
+    });
+    
+    bodyInput.addEventListener('input', () => {
+        bodyCount.textContent = bodyInput.value.length;
+    });
+    
+    detailInput.addEventListener('input', () => {
+        detailCount.textContent = detailInput.value.length;
+    });
+    
+    toggleApiKey.addEventListener('click', () => {
+        apiKeyInput.type = apiKeyInput.type === 'password' ? 'text' : 'password';
+    });
+    
+    sendForm.addEventListener('submit', handleSendNotification);
+}
+
+async function handleSendNotification(e) {
+    e.preventDefault();
+    
+    const apiKey = apiKeyInput.value.trim();
+    const title = titleInput.value.trim();
+    const body = bodyInput.value.trim();
+    const detail = detailInput.value.trim();
+    
+    if (!apiKey) {
+        showSendResult('error', '請輸入 API 金鑰');
+        return;
+    }
+    
+    if (!title || !body) {
+        showSendResult('error', '標題和內文為必填');
+        return;
+    }
+    
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = '<span>發送中...</span>';
+    
+    try {
+        localStorage.setItem('oyodo_api_key', apiKey);
+        
+        const response = await fetch('/api/notify', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': apiKey
+            },
+            body: JSON.stringify({ title, body, detail: detail || undefined })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || '發送失敗');
+        }
+        
+        showSendResult('success', `發送成功！已送達 ${data.delivered} 位訂閱者`);
+        titleInput.value = '';
+        bodyInput.value = '';
+        detailInput.value = '';
+        titleCount.textContent = '0';
+        bodyCount.textContent = '0';
+        detailCount.textContent = '0';
+        
+        await loadNotificationHistory();
+    } catch (err) {
+        console.error('Send failed:', err);
+        showSendResult('error', err.message);
+    } finally {
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+            發送通知
+        `;
+    }
+}
+
+function showSendResult(type, message) {
+    sendResult.className = 'send-result ' + type;
+    sendResult.textContent = message;
+    sendResult.style.display = 'block';
+    
+    setTimeout(() => {
+        sendResult.style.display = 'none';
+    }, 5000);
+}
+
 function updateStatus(state, text) {
-    statusIndicator.className = 'status-indicator ' + state;
+    statusBadge.className = 'status-badge ' + state;
     statusText.textContent = text;
 }
 
 function updateUI() {
     if (isSubscribed) {
-        updateStatus('subscribed', '已訂閱通知');
+        updateStatus('subscribed', '已訂閱');
         subscribeBtn.textContent = '取消訂閱';
     } else {
         updateStatus('unsubscribed', '未訂閱');
@@ -51,6 +185,7 @@ function updateUI() {
 }
 
 async function subscribe() {
+    subscribeBtn.disabled = true;
     try {
         const response = await fetch('/api/vapid-public-key');
         const { publicKey } = await response.json();
@@ -71,10 +206,12 @@ async function subscribe() {
     } catch (err) {
         console.error('Subscribe failed:', err);
         alert('訂閱失敗: ' + err.message);
+        subscribeBtn.disabled = false;
     }
 }
 
 async function unsubscribe() {
+    subscribeBtn.disabled = true;
     try {
         const subscription = await swRegistration.pushManager.getSubscription();
         if (subscription) {
@@ -90,6 +227,7 @@ async function unsubscribe() {
     } catch (err) {
         console.error('Unsubscribe failed:', err);
         alert('取消訂閱失敗: ' + err.message);
+        subscribeBtn.disabled = false;
     }
 }
 
@@ -101,10 +239,13 @@ subscribeBtn.addEventListener('click', () => {
     }
 });
 
-closeDetailBtn.addEventListener('click', () => {
-    detailSection.style.display = 'none';
-    history.replaceState(null, '', '/');
-});
+closeDetailBtn.addEventListener('click', closeDetail);
+document.querySelector('.modal-backdrop')?.addEventListener('click', closeDetail);
+
+function closeDetail() {
+    detailModal.classList.remove('active');
+    history.replaceState(null, '', window.location.pathname);
+}
 
 function checkUrlForNotification() {
     const params = new URLSearchParams(window.location.search);
@@ -124,11 +265,19 @@ async function showNotificationDetail(id) {
 
         detailTitle.textContent = data.title;
         detailBody.textContent = data.body;
-        detailContent.textContent = data.detail || '無詳細內容';
+        
+        if (data.detail) {
+            detailContent.textContent = data.detail;
+            detailContent.classList.remove('empty');
+        } else {
+            detailContent.textContent = '';
+            detailContent.classList.add('empty');
+        }
+        
         detailTime.textContent = new Date(data.createdAt).toLocaleString('zh-TW');
 
-        detailSection.style.display = 'block';
-        detailSection.scrollIntoView({ behavior: 'smooth' });
+        detailModal.classList.add('active');
+        history.pushState(null, '', `?notification=${id}`);
     } catch (err) {
         console.error('Load detail failed:', err);
     }
@@ -137,31 +286,93 @@ async function showNotificationDetail(id) {
 async function loadNotificationHistory() {
     try {
         const response = await fetch('/api/notifications');
-        const notifications = await response.json();
+        allNotifications = await response.json();
 
-        if (notifications.length === 0) {
-            notificationList.innerHTML = '<p class="empty-state">尚無通知記錄</p>';
-            return;
-        }
-
-        notificationList.innerHTML = notifications.map(n => `
-            <div class="notification-item" data-id="${n.id}">
-                <h4>${escapeHtml(n.title)}${n.detail ? '<span class="has-detail">有詳情</span>' : ''}</h4>
-                <p>${escapeHtml(n.body)}</p>
-                <time>${new Date(n.createdAt).toLocaleString('zh-TW')}</time>
-            </div>
-        `).join('');
-
-        notificationList.querySelectorAll('.notification-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const id = item.dataset.id;
-                history.pushState(null, '', `?notification=${id}`);
-                showNotificationDetail(id);
-            });
-        });
+        updateStats();
+        renderRecentList();
+        renderFullList();
     } catch (err) {
         console.error('Load history failed:', err);
     }
+}
+
+function updateStats() {
+    statTotal.textContent = allNotifications.length;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayCount = allNotifications.filter(n => new Date(n.createdAt) >= today).length;
+    statToday.textContent = todayCount;
+}
+
+function renderRecentList() {
+    const recent = allNotifications.slice(0, 3);
+    
+    if (recent.length === 0) {
+        recentList.innerHTML = `
+            <div class="empty-state">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                </svg>
+                <p>尚無通知</p>
+            </div>
+        `;
+        return;
+    }
+    
+    recentList.innerHTML = recent.map(n => createNotificationItem(n)).join('');
+    bindNotificationClicks(recentList);
+}
+
+function renderFullList() {
+    if (allNotifications.length === 0) {
+        notificationList.innerHTML = `
+            <div class="empty-state">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                </svg>
+                <p>尚無通知記錄</p>
+            </div>
+        `;
+        return;
+    }
+    
+    notificationList.innerHTML = allNotifications.map(n => createNotificationItem(n)).join('');
+    bindNotificationClicks(notificationList);
+}
+
+function createNotificationItem(n) {
+    const badge = n.detail ? '<span class="badge">有詳情</span>' : '';
+    return `
+        <div class="notification-item" data-id="${n.id}">
+            <h4>${escapeHtml(n.title)}${badge}</h4>
+            <p>${escapeHtml(n.body)}</p>
+            <time>${formatTime(n.createdAt)}</time>
+        </div>
+    `;
+}
+
+function bindNotificationClicks(container) {
+    container.querySelectorAll('.notification-item').forEach(item => {
+        item.addEventListener('click', () => {
+            showNotificationDetail(item.dataset.id);
+        });
+    });
+}
+
+function formatTime(dateStr) {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diff = now - date;
+    
+    if (diff < 60000) return '剛剛';
+    if (diff < 3600000) return Math.floor(diff / 60000) + ' 分鐘前';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小時前';
+    if (diff < 604800000) return Math.floor(diff / 86400000) + ' 天前';
+    
+    return date.toLocaleDateString('zh-TW');
 }
 
 function escapeHtml(text) {
@@ -183,11 +394,20 @@ function urlBase64ToUint8Array(base64String) {
     return outputArray;
 }
 
-navigator.serviceWorker.addEventListener('message', (event) => {
-    if (event.data.type === 'NOTIFICATION_CLICK') {
-        showNotificationDetail(event.data.notificationId);
-        loadNotificationHistory();
+window.addEventListener('popstate', () => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get('notification')) {
+        detailModal.classList.remove('active');
     }
 });
+
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data.type === 'NOTIFICATION_CLICK') {
+            showNotificationDetail(event.data.notificationId);
+            loadNotificationHistory();
+        }
+    });
+}
 
 init();
