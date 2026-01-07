@@ -23,9 +23,6 @@ const detailCount = document.getElementById('detailCount');
 const toggleApiKey = document.getElementById('toggleApiKey');
 const sendResult = document.getElementById('sendResult');
 const sendBtn = document.getElementById('sendBtn');
-const modeBanner = document.getElementById('modeBanner');
-const modeChip = document.getElementById('modeChip');
-const modeMessage = document.getElementById('modeMessage');
 const tabItems = Array.from(document.querySelectorAll('.tab-item'));
 const tabPanes = {
     home: document.getElementById('homePane'),
@@ -47,7 +44,6 @@ async function init() {
     initTabs();
     initSendForm();
     setupModeDetection();
-    
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
         updateStatus('unsupported', '不支援推播');
         return;
@@ -204,14 +200,10 @@ function applyMode(mode) {
     document.body.dataset.mode = mode;
     
     if (mode === 'desktop') {
-        modeChip.textContent = '桌面模式 · 發信控制';
-        modeMessage.textContent = '請在此輸入 API Key，集中管理並發送通知給所有訂閱者。';
         sendTabItem?.classList.remove('tab-item--hidden');
         tabPanes.send?.classList.remove('tab-pane--hidden');
-        activateTab('send');
+        activateTab('home');
     } else {
-        modeChip.textContent = '手機模式 · 推播端';
-        modeMessage.textContent = '建議將本頁加入主畫面並完成訂閱，即可作為 Web App 接收通知。';
         sendTabItem?.classList.add('tab-item--hidden');
         tabPanes.send?.classList.add('tab-pane--hidden');
         if (activeTab === 'send') {
