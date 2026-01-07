@@ -23,14 +23,30 @@ const detailCount = document.getElementById('detailCount');
 const toggleApiKey = document.getElementById('toggleApiKey');
 const sendResult = document.getElementById('sendResult');
 const sendBtn = document.getElementById('sendBtn');
+const modeBanner = document.getElementById('modeBanner');
+const modeChip = document.getElementById('modeChip');
+const modeMessage = document.getElementById('modeMessage');
+const tabItems = Array.from(document.querySelectorAll('.tab-item'));
+const tabPanes = {
+    home: document.getElementById('homePane'),
+    history: document.getElementById('historyPane'),
+    send: document.getElementById('sendPane')
+};
+const sendTabItem = tabItems.find(item => item.dataset.tab === 'send');
 
 let swRegistration = null;
 let isSubscribed = false;
 let allNotifications = [];
+let activeTab = 'home';
+let currentMode = null;
+let resizeDebounce = null;
+
+const MODE_BREAKPOINT = 900;
 
 async function init() {
     initTabs();
     initSendForm();
+    setupModeDetection();
     
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
         updateStatus('unsupported', '不支援推播');
@@ -54,20 +70,14 @@ async function init() {
 }
 
 function initTabs() {
-    const tabItems = document.querySelectorAll('.tab-item');
-    const tabPanes = document.querySelectorAll('.tab-pane');
-    
     tabItems.forEach(item => {
         item.addEventListener('click', () => {
+            if (item.classList.contains('tab-item--hidden')) return;
             const tabId = item.dataset.tab;
-            
-            tabItems.forEach(t => t.classList.remove('active'));
-            tabPanes.forEach(p => p.classList.remove('active'));
-            
-            item.classList.add('active');
-            document.getElementById(tabId + 'Pane').classList.add('active');
+            activateTab(tabId);
         });
     });
+    activateTab('home');
 }
 
 function initSendForm() {
@@ -171,6 +181,72 @@ function showSendResult(type, message) {
 function updateStatus(state, text) {
     statusBadge.className = 'status-badge ' + state;
     statusText.textContent = text;
+}
+
+function setupModeDetection() {
+    determineMode();
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeDebounce);
+        resizeDebounce = setTimeout(determineMode, 150);
+    });
+}
+
+function determineMode() {
+    const width = window.innerWidth;
+    const newMode = width >= MODE_BREAKPOINT ? 'desktop' : 'mobile';
+    if (newMode !== currentMode) {
+        applyMode(newMode);
+    }
+}
+
+function applyMode(mode) {
+    currentMode = mode;
+    document.body.dataset.mode = mode;
+    
+    if (mode === 'desktop') {
+        modeChip.textContent = '桌面模式 · 發信控制';
+        modeMessage.textContent = '請在此輸入 API Key，集中管理並發送通知給所有訂閱者。';
+        sendTabItem?.classList.remove('tab-item--hidden');
+        tabPanes.send?.classList.remove('tab-pane--hidden');
+        activateTab('send');
+    } else {
+        modeChip.textContent = '手機模式 · 推播端';
+        modeMessage.textContent = '建議將本頁加入主畫面並完成訂閱，即可作為 Web App 接收通知。';
+        sendTabItem?.classList.add('tab-item--hidden');
+        tabPanes.send?.classList.add('tab-pane--hidden');
+        if (activeTab === 'send') {
+            activateTab('home');
+        } else {
+            ensureActiveTab();
+        }
+    }
+    ensureActiveTab();
+}
+
+function activateTab(tabId) {
+    const targetItem = tabItems.find(item => item.dataset.tab === tabId);
+    const targetPane = tabPanes[tabId];
+    
+    if (!targetItem || !targetPane) return;
+    if (targetItem.classList.contains('tab-item--hidden')) return;
+    if (targetPane.classList.contains('tab-pane--hidden')) return;
+    
+    tabItems.forEach(item => item.classList.remove('active'));
+    Object.values(tabPanes).forEach(pane => pane.classList.remove('active'));
+    
+    targetItem.classList.add('active');
+    targetPane.classList.add('active');
+    activeTab = tabId;
+}
+
+function ensureActiveTab() {
+    const visibleTabs = tabItems.filter(item => !item.classList.contains('tab-item--hidden'));
+    if (visibleTabs.length === 0) return;
+    
+    const hasActive = visibleTabs.some(item => item.dataset.tab === activeTab);
+    if (!hasActive) {
+        activateTab(visibleTabs[0].dataset.tab);
+    }
 }
 
 function updateUI() {
