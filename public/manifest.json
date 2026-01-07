@@ -1,11 +1,11 @@
 {
-    "name": "Oyodo Push Service",
-    "short_name": "Oyodo",
-    "description": "Web Push 推播通知服務",
+    "name": "Black Signal",
+    "short_name": "Signal",
+    "description": "Secure Push Service",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#0a0a0f",
-    "theme_color": "#0a0a0f",
+    "background_color": "#050505",
+    "theme_color": "#050505",
     "orientation": "portrait",
     "icons": [
         {
