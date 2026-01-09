@@ -37,18 +37,37 @@ let allNotifications = [];
 let activeTab = 'home';
 let currentMode = null;
 let resizeDebounce = null;
+let touchStartX = 0;
+let touchStartY = 0;
+let touchDeltaX = 0;
+let isTouchTracking = false;
 
 const MODE_BREAKPOINT = 900;
 
 async function init() {
     initTabs();
     initSendForm();
+    initGestures();
     setupModeDetection();
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
         updateStatus('unsupported', '不支援推播');
         return;
     }
 
+function injectPendingNotification({ title, body, detail }) {
+    const tempNotification = {
+        id: `temp-${Date.now()}`,
+        title,
+        body,
+        detail,
+        createdAt: new Date().toISOString(),
+        _temp: true
+    };
+    allNotifications = [tempNotification, ...allNotifications];
+    updateStats();
+    renderRecentList();
+    renderFullList();
+}
     try {
         swRegistration = await navigator.serviceWorker.register('/sw.js');
         console.log('Service Worker registered');
@@ -120,7 +139,7 @@ async function handleSendNotification(e) {
     }
     
     sendBtn.disabled = true;
-    sendBtn.innerHTML = '<span>發送中...</span>';
+    sendBtn.innerHTML = '<span>廣播中...</span>';
     
     try {
         localStorage.setItem('oyodo_api_key', apiKey);
@@ -141,6 +160,7 @@ async function handleSendNotification(e) {
         }
         
         showSendResult('success', `發送成功！已送達 ${data.delivered} 位訂閱者`);
+        injectPendingNotification({ title, body, detail });
         titleInput.value = '';
         bodyInput.value = '';
         detailInput.value = '';
@@ -154,13 +174,7 @@ async function handleSendNotification(e) {
         showSendResult('error', err.message);
     } finally {
         sendBtn.disabled = false;
-        sendBtn.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="22" y1="2" x2="11" y2="13"></line>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-            </svg>
-            發送通知
-        `;
+        sendBtn.innerHTML = '執行廣播';
     }
 }
 
@@ -250,6 +264,67 @@ function updateUI() {
         subscribeBtn.textContent = '訂閱通知';
     }
     subscribeBtn.disabled = false;
+}
+
+function initGestures() {
+    const surface = document.querySelector('.tab-content');
+    if (!surface) return;
+
+    surface.addEventListener('touchstart', handleTouchStart, { passive: true });
+    surface.addEventListener('touchmove', handleTouchMove, { passive: false });
+    surface.addEventListener('touchend', handleTouchEnd);
+}
+
+function handleTouchStart(event) {
+    if (event.touches.length !== 1 || detailModal?.classList.contains('active')) return;
+    const touch = event.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    touchDeltaX = 0;
+    isTouchTracking = true;
+}
+
+function handleTouchMove(event) {
+    if (!isTouchTracking || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - touchStartX;
+    const deltaY = touch.clientY - touchStartY;
+
+    if (Math.abs(deltaY) > Math.abs(deltaX)) {
+        isTouchTracking = false;
+        return;
+    }
+
+    touchDeltaX = deltaX;
+    if (Math.abs(deltaX) > 10) {
+        event.preventDefault();
+    }
+}
+
+function handleTouchEnd(event) {
+    if (!isTouchTracking) return;
+    isTouchTracking = false;
+
+    const deltaX = event.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(deltaX) < 60) return;
+
+    if (deltaX < 0) {
+        goToAdjacentTab('next');
+    } else {
+        goToAdjacentTab('prev');
+    }
+}
+
+function goToAdjacentTab(direction) {
+    const visibleTabs = tabItems.filter(item => !item.classList.contains('tab-item--hidden'));
+    const currentIndex = visibleTabs.findIndex(item => item.dataset.tab === activeTab);
+    if (currentIndex === -1) return;
+
+    if (direction === 'next' && currentIndex < visibleTabs.length - 1) {
+        activateTab(visibleTabs[currentIndex + 1].dataset.tab);
+    } else if (direction === 'prev' && currentIndex > 0) {
+        activateTab(visibleTabs[currentIndex - 1].dataset.tab);
+    }
 }
 
 async function subscribe() {

@@ -7,8 +7,10 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     endpoint VARCHAR(500) NOT NULL UNIQUE,
     p256dh VARCHAR(200) NOT NULL,
     auth VARCHAR(100) NOT NULL,
+    channel VARCHAR(100) NOT NULL DEFAULT 'global',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_endpoint (endpoint)
+    INDEX idx_endpoint (endpoint),
+    INDEX idx_channel (channel)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 通知表
@@ -17,6 +19,8 @@ CREATE TABLE IF NOT EXISTS notifications (
     title VARCHAR(200) NOT NULL,
     body TEXT NOT NULL,
     detail TEXT,
+    channel VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_created_at (created_at)
+    INDEX idx_created_at (created_at),
+    INDEX idx_channel (channel)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
