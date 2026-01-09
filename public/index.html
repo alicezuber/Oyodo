@@ -56,9 +56,25 @@
                                 </button>
                             </div>
                             <div class="channel-control">
-                                <label for="userChannelInput">訂閱頻道（Channel）</label>
-                                <input type="text" id="userChannelInput" placeholder="例如：global" value="global" list="channelPreset">
-                                <p class="field-hint">裝置僅會接收對應頻道通知，留空將使用 global。</p>
+                                <label for="userChannelSelect">訂閱頻道（Channel）</label>
+                                <div class="select-wrapper">
+                                    <select id="userChannelSelect">
+                                        <option value="global">GLOBAL // 全域</option>
+                                        <option value="ops">OPS // 指揮線</option>
+                                        <option value="alpha">ALPHA // 測試艙</option>
+                                        <option value="__custom">自訂頻道</option>
+                                    </select>
+                                    <span class="select-caret" aria-hidden="true"></span>
+                                </div>
+                                <div class="custom-channel" id="userChannelCustomWrap">
+                                    <input type="text" id="userChannelCustom" placeholder="輸入自訂頻道">
+                                </div>
+                                <p class="field-hint">裝置只會接收對應頻道通知，預設為 global。</p>
+                            </div>
+                            <div class="channel-control">
+                                <label for="userRecipientInput">裝置識別（選填）</label>
+                                <input type="text" id="userRecipientInput" placeholder="例如：device-42">
+                                <p class="field-hint">設定後僅會接收對應識別碼的專屬訊息。</p>
                             </div>
                         </header>
 
@@ -142,9 +158,27 @@
                             </div>
                             
                             <div class="form-group">
-                                <label for="channelInput">指定頻道（Channel）</label>
-                                <input type="text" id="channelInput" placeholder="留空則廣播所有頻道" list="channelPreset">
-                                <span class="field-hint">請輸入單一頻道名稱，需與訂閱端設定一致。</span>
+                                <label for="channelSelect">指定頻道（Channel）</label>
+                                <div class="select-wrapper">
+                                    <select id="channelSelect">
+                                        <option value="">全部頻道（預設）</option>
+                                        <option value="global">GLOBAL // 全域</option>
+                                        <option value="ops">OPS // 指揮線</option>
+                                        <option value="alpha">ALPHA // 測試艙</option>
+                                        <option value="__custom">自訂頻道</option>
+                                    </select>
+                                    <span class="select-caret" aria-hidden="true"></span>
+                                </div>
+                                <div class="custom-channel" id="channelCustomWrap">
+                                    <input type="text" id="channelCustomInput" placeholder="輸入頻道名稱">
+                                </div>
+                                <span class="field-hint">留空即向所有頻道廣播，自訂頻道需與訂閱端一致。</span>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="recipientTargetInput">指定對象 ID（選填）</label>
+                                <input type="text" id="recipientTargetInput" placeholder="例如：device-42">
+                                <span class="field-hint">若填寫，訊息僅會送達該 ID 對應的訂閱者。</span>
                             </div>
                             
                             <div class="form-grid">
@@ -193,7 +227,8 @@
                     <div class="detail-header">
                         <h2 id="detailTitle"></h2>
                         <div class="detail-meta">
-                            <span class="channel-pill" id="detailChannel"></span>
+                            <span class="pill channel-pill" id="detailChannel" hidden></span>
+                            <span class="pill recipient-pill" id="detailRecipient" hidden></span>
                             <time id="detailTime"></time>
                         </div>
                     </div>

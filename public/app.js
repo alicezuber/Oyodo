@@ -6,6 +6,8 @@ const detailTitle = document.getElementById('detailTitle');
 const detailBody = document.getElementById('detailBody');
 const detailContent = document.getElementById('detailContent');
 const detailTime = document.getElementById('detailTime');
+const detailChannel = document.getElementById('detailChannel');
+const detailRecipient = document.getElementById('detailRecipient');
 const closeDetailBtn = document.getElementById('closeDetailBtn');
 const notificationList = document.getElementById('notificationList');
 const recentList = document.getElementById('recentList');
@@ -14,6 +16,10 @@ const statToday = document.getElementById('statToday');
 
 const sendForm = document.getElementById('sendForm');
 const apiKeyInput = document.getElementById('apiKeyInput');
+const channelSelect = document.getElementById('channelSelect');
+const channelCustomWrap = document.getElementById('channelCustomWrap');
+const channelCustomInput = document.getElementById('channelCustomInput');
+const recipientTargetInput = document.getElementById('recipientTargetInput');
 const titleInput = document.getElementById('titleInput');
 const bodyInput = document.getElementById('bodyInput');
 const detailInput = document.getElementById('detailInput');
@@ -23,6 +29,10 @@ const detailCount = document.getElementById('detailCount');
 const toggleApiKey = document.getElementById('toggleApiKey');
 const sendResult = document.getElementById('sendResult');
 const sendBtn = document.getElementById('sendBtn');
+const userChannelSelect = document.getElementById('userChannelSelect');
+const userChannelCustomWrap = document.getElementById('userChannelCustomWrap');
+const userChannelCustomInput = document.getElementById('userChannelCustom');
+const userRecipientInput = document.getElementById('userRecipientInput');
 const tabItems = Array.from(document.querySelectorAll('.tab-item'));
 const tabPanes = {
     home: document.getElementById('homePane'),
@@ -43,10 +53,73 @@ let touchDeltaX = 0;
 let isTouchTracking = false;
 
 const MODE_BREAKPOINT = 900;
+const PRESET_CHANNELS = ['global', 'ops', 'alpha'];
+const STORAGE_KEYS = {
+    apiKey: 'oyodo_api_key',
+    userChannel: 'oyodo_user_channel',
+    userRecipient: 'oyodo_user_recipient'
+};
+
+function normalizeChannelInput(value) {
+    return (value || '').trim().toLowerCase();
+}
+
+function getChannelValue(selectEl, customInput, fallback = '') {
+    if (!selectEl) return fallback;
+    if (selectEl.value === '__custom') {
+        const customVal = normalizeChannelInput(customInput?.value);
+        return customVal || fallback;
+    }
+    const normalized = normalizeChannelInput(selectEl.value);
+    return normalized || fallback;
+}
+
+function applyChannelSelection(selectEl, customInput, wrapEl, value, fallback = '') {
+    if (!selectEl) return;
+    const normalized = normalizeChannelInput(value) || normalizeChannelInput(fallback);
+    if (normalized && PRESET_CHANNELS.includes(normalized)) {
+        selectEl.value = normalized;
+        if (customInput) customInput.value = '';
+    } else if (normalized) {
+        selectEl.value = '__custom';
+        if (customInput) customInput.value = normalized;
+    } else {
+        selectEl.value = '';
+        if (customInput) customInput.value = '';
+    }
+    updateCustomChannelVisibility(selectEl, wrapEl);
+}
+
+function updateCustomChannelVisibility(selectEl, wrapEl) {
+    if (!wrapEl) return;
+    if (selectEl?.value === '__custom') {
+        wrapEl.classList.add('active');
+    } else {
+        wrapEl.classList.remove('active');
+    }
+}
+
+function getUserChannel() {
+    return getChannelValue(userChannelSelect, userChannelCustomInput, 'global') || 'global';
+}
+
+function saveUserPreferences() {
+    const channel = getUserChannel();
+    localStorage.setItem(STORAGE_KEYS.userChannel, channel);
+    if (userRecipientInput) {
+        const recipient = userRecipientInput.value.trim();
+        if (recipient) {
+            localStorage.setItem(STORAGE_KEYS.userRecipient, recipient);
+        } else {
+            localStorage.removeItem(STORAGE_KEYS.userRecipient);
+        }
+    }
+}
 
 async function init() {
     initTabs();
     initSendForm();
+    initSubscriptionControls();
     initGestures();
     setupModeDetection();
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -54,20 +127,6 @@ async function init() {
         return;
     }
 
-function injectPendingNotification({ title, body, detail }) {
-    const tempNotification = {
-        id: `temp-${Date.now()}`,
-        title,
-        body,
-        detail,
-        createdAt: new Date().toISOString(),
-        _temp: true
-    };
-    allNotifications = [tempNotification, ...allNotifications];
-    updateStats();
-    renderRecentList();
-    renderFullList();
-}
     try {
         swRegistration = await navigator.serviceWorker.register('/sw.js');
         console.log('Service Worker registered');
@@ -84,6 +143,22 @@ function injectPendingNotification({ title, body, detail }) {
     }
 }
 
+function injectPendingNotification({ title, body, detail, channel, recipientId }) {
+    const tempNotification = {
+        id: `temp-${Date.now()}`,
+        title,
+        body,
+        detail,
+        channel: channel || null,
+        recipientId: recipientId || null,
+        createdAt: new Date().toISOString(),
+        _temp: true
+    };
+    allNotifications = [tempNotification, ...allNotifications];
+    updateStats();
+    renderRecentList();
+    renderFullList();
+}
 function initTabs() {
     tabItems.forEach(item => {
         item.addEventListener('click', () => {
@@ -96,7 +171,7 @@ function initTabs() {
 }
 
 function initSendForm() {
-    const savedApiKey = localStorage.getItem('oyodo_api_key');
+    const savedApiKey = localStorage.getItem(STORAGE_KEYS.apiKey);
     if (savedApiKey) {
         apiKeyInput.value = savedApiKey;
     }
@@ -116,8 +191,71 @@ function initSendForm() {
     toggleApiKey.addEventListener('click', () => {
         apiKeyInput.type = apiKeyInput.type === 'password' ? 'text' : 'password';
     });
+
+    if (channelSelect) {
+        updateCustomChannelVisibility(channelSelect, channelCustomWrap);
+        channelSelect.addEventListener('change', () => {
+            updateCustomChannelVisibility(channelSelect, channelCustomWrap);
+            if (channelSelect.value !== '__custom' && channelCustomInput) {
+                channelCustomInput.value = '';
+            }
+        });
+    }
+
+    channelCustomInput?.addEventListener('blur', () => {
+        channelCustomInput.value = normalizeChannelInput(channelCustomInput.value);
+    });
+
+    recipientTargetInput?.addEventListener('blur', () => {
+        if (!recipientTargetInput) return;
+        recipientTargetInput.value = recipientTargetInput.value.trim();
+    });
     
     sendForm.addEventListener('submit', handleSendNotification);
+}
+
+function initSubscriptionControls() {
+    if (!userChannelSelect) return;
+
+    const savedChannel = localStorage.getItem(STORAGE_KEYS.userChannel) || 'global';
+    applyChannelSelection(
+        userChannelSelect,
+        userChannelCustomInput,
+        userChannelCustomWrap,
+        savedChannel,
+        'global'
+    );
+    updateCustomChannelVisibility(userChannelSelect, userChannelCustomWrap);
+
+    const savedRecipient = localStorage.getItem(STORAGE_KEYS.userRecipient) || '';
+    if (userRecipientInput && savedRecipient) {
+        userRecipientInput.value = savedRecipient;
+    }
+
+    userChannelSelect.addEventListener('change', () => {
+        updateCustomChannelVisibility(userChannelSelect, userChannelCustomWrap);
+        saveUserPreferences();
+    });
+
+    userChannelCustomInput?.addEventListener('input', () => {
+        if (userChannelSelect.value === '__custom') {
+            saveUserPreferences();
+        }
+    });
+    userChannelCustomInput?.addEventListener('blur', () => {
+        if (userChannelSelect.value === '__custom') {
+            userChannelCustomInput.value = normalizeChannelInput(userChannelCustomInput.value);
+            saveUserPreferences();
+        }
+    });
+
+    userRecipientInput?.addEventListener('input', () => {
+        saveUserPreferences();
+    });
+    userRecipientInput?.addEventListener('blur', () => {
+        userRecipientInput.value = userRecipientInput.value.trim();
+        saveUserPreferences();
+    });
 }
 
 async function handleSendNotification(e) {
@@ -127,6 +265,8 @@ async function handleSendNotification(e) {
     const title = titleInput.value.trim();
     const body = bodyInput.value.trim();
     const detail = detailInput.value.trim();
+    const selectedChannel = getChannelValue(channelSelect, channelCustomInput, '');
+    const targetRecipient = recipientTargetInput?.value.trim();
     
     if (!apiKey) {
         showSendResult('error', '請輸入 API 金鑰');
@@ -137,12 +277,30 @@ async function handleSendNotification(e) {
         showSendResult('error', '標題和內文為必填');
         return;
     }
+
+    if (channelSelect?.value === '__custom' && !selectedChannel) {
+        showSendResult('error', '請輸入自訂頻道名稱');
+        channelCustomInput?.focus();
+        return;
+    }
     
     sendBtn.disabled = true;
     sendBtn.innerHTML = '<span>廣播中...</span>';
     
     try {
-        localStorage.setItem('oyodo_api_key', apiKey);
+        localStorage.setItem(STORAGE_KEYS.apiKey, apiKey);
+        
+        const payload = {
+            title,
+            body,
+            detail: detail || undefined
+        };
+        if (selectedChannel) {
+            payload.channel = selectedChannel;
+        }
+        if (targetRecipient) {
+            payload.recipientId = targetRecipient;
+        }
         
         const response = await fetch('/api/notify', {
             method: 'POST',
@@ -150,7 +308,7 @@ async function handleSendNotification(e) {
                 'Content-Type': 'application/json',
                 'X-API-Key': apiKey
             },
-            body: JSON.stringify({ title, body, detail: detail || undefined })
+            body: JSON.stringify(payload)
         });
         
         const data = await response.json();
@@ -160,10 +318,16 @@ async function handleSendNotification(e) {
         }
         
         showSendResult('success', `發送成功！已送達 ${data.delivered} 位訂閱者`);
-        injectPendingNotification({ title, body, detail });
+        injectPendingNotification({ title, body, detail, channel: selectedChannel, recipientId: targetRecipient });
         titleInput.value = '';
         bodyInput.value = '';
         detailInput.value = '';
+        if (channelSelect && channelSelect.value !== '__custom') {
+            channelCustomInput && (channelCustomInput.value = '');
+        }
+        if (recipientTargetInput) {
+            recipientTargetInput.value = '';
+        }
         titleCount.textContent = '0';
         bodyCount.textContent = '0';
         detailCount.textContent = '0';
@@ -330,6 +494,7 @@ function goToAdjacentTab(direction) {
 async function subscribe() {
     subscribeBtn.disabled = true;
     try {
+        saveUserPreferences();
         const response = await fetch('/api/vapid-public-key');
         const { publicKey } = await response.json();
 
@@ -338,10 +503,19 @@ async function subscribe() {
             applicationServerKey: urlBase64ToUint8Array(publicKey)
         });
 
+        const recipientPref = userRecipientInput ? userRecipientInput.value.trim() : '';
+        const payload = {
+            subscription,
+            channel: getUserChannel()
+        };
+        if (recipientPref) {
+            payload.recipientId = recipientPref;
+        }
+
         await fetch('/api/subscribe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(subscription)
+            body: JSON.stringify(payload)
         });
 
         isSubscribed = true;
@@ -418,6 +592,8 @@ async function showNotificationDetail(id) {
         }
         
         detailTime.textContent = new Date(data.createdAt).toLocaleString('zh-TW');
+        setPillContent(detailChannel, data.channel, value => `#${value}`);
+        setPillContent(detailRecipient, data.recipientId, value => `@${value}`);
 
         detailModal.classList.add('active');
         history.pushState(null, '', `?notification=${id}`);
@@ -488,13 +664,28 @@ function renderFullList() {
 
 function createNotificationItem(n) {
     const badge = n.detail ? '<span class="badge">有詳情</span>' : '';
+    const channelPill = n.channel ? `<span class="pill channel-pill">#${escapeHtml(n.channel)}</span>` : '';
+    const recipientPill = n.recipientId ? `<span class="pill recipient-pill">@${escapeHtml(n.recipientId)}</span>` : '';
+    const metaRow = channelPill || recipientPill ? `<div class="notification-meta">${channelPill}${recipientPill}</div>` : '';
     return `
         <div class="notification-item" data-id="${n.id}">
             <h4>${escapeHtml(n.title)}${badge}</h4>
+            ${metaRow}
             <p>${escapeHtml(n.body)}</p>
             <time>${formatTime(n.createdAt)}</time>
         </div>
     `;
+}
+
+function setPillContent(element, value, formatter = v => v) {
+    if (!element) return;
+    if (value) {
+        element.hidden = false;
+        element.textContent = formatter(value);
+    } else {
+        element.hidden = true;
+        element.textContent = '';
+    }
 }
 
 function bindNotificationClicks(container) {

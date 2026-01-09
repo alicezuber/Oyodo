@@ -27,6 +27,19 @@ webpush.setVapidDetails(
 app.use(express.json());
 app.use(express.static('public'));
 
+const DEFAULT_CHANNEL = 'global';
+
+function normalizeChannel(value, fallback = DEFAULT_CHANNEL) {
+    const normalized = (value ?? '').trim();
+    if (!normalized) return fallback;
+    return normalized.toLowerCase();
+}
+
+function normalizeRecipient(value) {
+    const normalized = (value ?? '').trim();
+    return normalized || null;
+}
+
 async function getSubscriptions() {
     const [rows] = await poolOyodo.query('SELECT * FROM subscriptions');
     return rows.map(row => ({
@@ -34,14 +47,24 @@ async function getSubscriptions() {
         keys: {
             p256dh: row.p256dh,
             auth: row.auth
-        }
+        },
+        channel: row.channel || DEFAULT_CHANNEL,
+        recipientId: row.recipient_id || null
     }));
 }
 
-async function addSubscription(subscription) {
+async function addSubscription(subscription, channel, recipientId) {
+    const resolvedChannel = normalizeChannel(channel);
+    const resolvedRecipient = normalizeRecipient(recipientId);
     await poolOyodo.query(
-        'INSERT IGNORE INTO subscriptions (endpoint, p256dh, auth) VALUES (?, ?, ?)',
-        [subscription.endpoint, subscription.keys.p256dh, subscription.keys.auth]
+        `INSERT INTO subscriptions (endpoint, p256dh, auth, channel, recipient_id)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            p256dh = VALUES(p256dh),
+            auth = VALUES(auth),
+            channel = VALUES(channel),
+            recipient_id = VALUES(recipient_id)`,
+        [subscription.endpoint, subscription.keys.p256dh, subscription.keys.auth, resolvedChannel, resolvedRecipient]
     );
 }
 
@@ -49,10 +72,10 @@ async function removeSubscription(endpoint) {
     await poolOyodo.query('DELETE FROM subscriptions WHERE endpoint = ?', [endpoint]);
 }
 
-async function saveNotification(id, title, body, detail) {
+async function saveNotification(id, title, body, detail, channel, recipientId) {
     await poolOyodo.query(
-        'INSERT INTO notifications (id, title, body, detail, created_at) VALUES (?, ?, ?, ?, NOW())',
-        [id, title, body, detail]
+        'INSERT INTO notifications (id, title, body, detail, channel, recipient_id, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+        [id, title, body, detail, channel || null, recipientId || null]
     );
 }
 
@@ -64,6 +87,8 @@ async function getNotification(id) {
         title: row.title,
         body: row.body,
         detail: row.detail,
+        channel: row.channel,
+        recipientId: row.recipient_id,
         createdAt: row.created_at
     };
 }
@@ -75,6 +100,8 @@ async function getAllNotifications() {
         title: row.title,
         body: row.body,
         detail: row.detail,
+        channel: row.channel,
+        recipientId: row.recipient_id,
         createdAt: row.created_at
     }));
 }
@@ -92,14 +119,17 @@ app.get('/api/vapid-public-key', (req, res) => {
 });
 
 app.post('/api/subscribe', async (req, res) => {
-    const subscription = req.body;
-    
+    const payload = req.body || {};
+    const subscription = payload.subscription || payload;
+    const channel = payload.channel;
+    const recipientId = payload.recipientId || payload.recipient_id;
+
     if (!subscription || !subscription.endpoint) {
         return res.status(400).json({ error: 'Invalid subscription' });
     }
     
     try {
-        await addSubscription(subscription);
+        await addSubscription(subscription, channel, recipientId);
         console.log('New subscription added');
         res.json({ success: true });
     } catch (err) {
@@ -125,28 +155,49 @@ app.delete('/api/subscribe', async (req, res) => {
 });
 
 app.post('/api/notify', apiKeyAuth, async (req, res) => {
-    const { title, body, detail } = req.body;
+    const { title, body, detail, channel, recipientId } = req.body;
     
     if (!title || !body) {
         return res.status(400).json({ error: 'Title and body are required' });
     }
     
     const notificationId = uuidv4();
+    const targetChannel = normalizeChannel(channel, null);
+    const targetRecipient = normalizeRecipient(recipientId);
     
     try {
-        await saveNotification(notificationId, title, body, detail || null);
+        await saveNotification(notificationId, title, body, detail || null, targetChannel, targetRecipient);
         
         const payload = JSON.stringify({
             title,
             body,
-            notificationId
+            notificationId,
+            channel: targetChannel,
+            recipientId: targetRecipient
         });
         
         const subscriptions = await getSubscriptions();
+        const normalizedTargetChannel = targetChannel ? targetChannel.toLowerCase() : null;
+        const normalizedTargetRecipient = targetRecipient ? targetRecipient.toLowerCase() : null;
+
+        const recipients = subscriptions.filter(sub => {
+            const subChannel = normalizeChannel(sub.channel).toLowerCase();
+            const subRecipient = sub.recipientId ? sub.recipientId.trim().toLowerCase() : null;
+            if (normalizedTargetRecipient) {
+                if (!subRecipient || subRecipient !== normalizedTargetRecipient) return false;
+                if (normalizedTargetChannel && subChannel !== normalizedTargetChannel) return false;
+                return true;
+            }
+            if (normalizedTargetChannel) {
+                return subChannel === normalizedTargetChannel;
+            }
+            return true;
+        });
+
         const results = { success: 0, failed: 0 };
         const expiredEndpoints = [];
         
-        for (const subscription of subscriptions) {
+        for (const subscription of recipients) {
             try {
                 await webpush.sendNotification(subscription, payload);
                 results.success++;
