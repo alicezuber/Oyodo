@@ -437,6 +437,7 @@ function applyAuthState() {
             authBtn.textContent = '登入系統';
         }
     }
+    setUserIdentityDisplay();
     if (authBadge) {
         if (authState.isAuthenticated) {
             const primaryRole = getPrimaryRole(authState.roles);
