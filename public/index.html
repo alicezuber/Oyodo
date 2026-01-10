@@ -60,6 +60,7 @@
                                         登入系統
                                     </button>
                                     <span id="authBadge" class="auth-badge" hidden></span>
+                                    <span id="authDebug" class="auth-debug" hidden></span>
                                 </div>
                             </div>
                             <div class="channel-control">
@@ -67,21 +68,25 @@
                                 <div class="select-wrapper">
                                     <select id="userChannelSelect">
                                         <option value="global">GLOBAL // 全域</option>
-                                        <option value="ops">OPS // 指揮線</option>
-                                        <option value="alpha">ALPHA // 測試艙</option>
-                                        <option value="__custom">自訂頻道</option>
                                     </select>
                                     <span class="select-caret" aria-hidden="true"></span>
                                 </div>
-                                <div class="custom-channel" id="userChannelCustomWrap">
-                                    <input type="text" id="userChannelCustom" placeholder="輸入自訂頻道">
-                                </div>
-                                <p class="field-hint">裝置只會接收對應頻道通知，預設為 global。</p>
+                                <p class="field-hint" id="channelSelectHint">登入後可加入專屬頻道，未登入僅能接收 global。</p>
                             </div>
-                            <div class="channel-control">
-                                <label for="userRecipientInput">裝置識別（選填）</label>
-                                <input type="text" id="userRecipientInput" placeholder="例如：device-42">
-                                <p class="field-hint">設定後僅會接收對應識別碼的專屬訊息。</p>
+                            <div class="channel-control identity-block">
+                                <label>當前身分</label>
+                                <p id="userIdentityDisplay" class="identity-display">未登入｜訪客裝置</p>
+                                <p class="field-hint">登入後會綁定使用者 ID，並可接收針對個人推播。</p>
+                            </div>
+                            <div class="channel-control join-channel">
+                                <label>加入頻道</label>
+                                <div class="join-channel-grid">
+                                    <input type="text" id="joinChannelInput" placeholder="頻道名稱" autocomplete="off">
+                                    <input type="password" id="joinPasscodeInput" placeholder="六位數密碼" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+                                    <button type="button" class="btn btn-secondary" id="joinChannelBtn">加入</button>
+                                </div>
+                                <p class="field-hint" id="joinChannelHint">登入後輸入頻道名稱與 6 位密碼即可加入。</p>
+                                <div class="join-status" id="joinChannelStatus" hidden></div>
                             </div>
                         </header>
 

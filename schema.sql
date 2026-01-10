@@ -15,6 +15,21 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     INDEX idx_recipient (recipient_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS channel_keys (
+    channel VARCHAR(100) PRIMARY KEY,
+    passcode_hash CHAR(64) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS channel_members (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id VARCHAR(150) NOT NULL,
+    channel VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_user_channel (user_id, channel),
+    CONSTRAINT fk_channel_members_channel FOREIGN KEY (channel) REFERENCES channel_keys(channel)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 通知表
 CREATE TABLE IF NOT EXISTS notifications (
     id VARCHAR(36) PRIMARY KEY,

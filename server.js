@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const crypto = require('crypto');
 const webpush = require('web-push');
 const mysql = require('mysql2/promise');
 const { v4: uuidv4 } = require('uuid');
@@ -39,6 +40,7 @@ app.get(['/auth/callback'], (req, res) => {
 const DEFAULT_CHANNEL = 'global';
 const ROLE_PRIORITY = ['admin', 'moderator', 'subscriber'];
 const SEND_ALLOWED_ROLES = ['admin', 'moderator'];
+const PASSCODE_LENGTH = 6;
 
 function normalizeChannel(value, fallback = DEFAULT_CHANNEL) {
     const normalized = (value ?? '').trim();
@@ -49,6 +51,10 @@ function normalizeChannel(value, fallback = DEFAULT_CHANNEL) {
 function normalizeRecipient(value) {
     const normalized = (value ?? '').trim();
     return normalized || null;
+}
+
+function hashPasscode(passcode) {
+    return crypto.createHash('sha256').update(String(passcode)).digest('hex');
 }
 
 function extractRoles(payload) {
@@ -298,6 +304,46 @@ app.get('/api/vapid-public-key', (req, res) => {
     res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
 });
 
+app.get('/api/channels/mine', oidcAuth, async (req, res) => {
+    try {
+        const channels = await getUserChannels(req.oidcUser.id);
+        res.json({ channels });
+    } catch (err) {
+        console.error('Channels mine error:', err.message);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/channels/join', oidcAuth, async (req, res) => {
+    const { channel, passcode } = req.body || {};
+    const normalizedChannel = normalizeChannel(channel, null);
+
+    if (!normalizedChannel || normalizedChannel === DEFAULT_CHANNEL) {
+        return res.status(400).json({ error: 'Invalid channel' });
+    }
+    if (!passcode || !/^\d+$/.test(String(passcode)) || String(passcode).length !== PASSCODE_LENGTH) {
+        return res.status(400).json({ error: `Passcode must be ${PASSCODE_LENGTH} digits` });
+    }
+
+    try {
+        const key = await getChannelKey(normalizedChannel);
+        if (!key) {
+            return res.status(404).json({ error: 'Channel not found' });
+        }
+        const hashed = hashPasscode(passcode);
+        if (hashed !== key.passcode_hash) {
+            return res.status(403).json({ error: 'Invalid passcode' });
+        }
+
+        await addChannelMembership(req.oidcUser.id, normalizedChannel);
+        const channels = await getUserChannels(req.oidcUser.id);
+        res.json({ success: true, channels });
+    } catch (err) {
+        console.error('Join channel error:', err.message);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 app.get('/api/auth/profile', oidcAuth, (req, res) => {
     res.json({ user: req.oidcUser });
 });
@@ -305,20 +351,35 @@ app.get('/api/auth/profile', oidcAuth, (req, res) => {
 app.post('/api/subscribe', async (req, res) => {
     const payload = req.body || {};
     const subscription = payload.subscription || payload;
-    const channel = payload.channel;
-    const recipientId = payload.recipientId || payload.recipient_id;
+    const requestedChannel = normalizeChannel(payload.channel, DEFAULT_CHANNEL);
 
     if (!subscription || !subscription.endpoint) {
         return res.status(400).json({ error: 'Invalid subscription' });
     }
-    
+
     try {
-        await addSubscription(subscription, channel, recipientId);
+        const user = await authenticateRequest(req, { optional: true });
+        let resolvedChannel = DEFAULT_CHANNEL;
+        let resolvedRecipient = null;
+
+        if (user) {
+            resolvedChannel = requestedChannel;
+            if (resolvedChannel !== DEFAULT_CHANNEL) {
+                const allowed = await userHasChannel(user.id, resolvedChannel);
+                if (!allowed) {
+                    return res.status(403).json({ error: 'Channel membership required' });
+                }
+            }
+            resolvedRecipient = user.id;
+        }
+
+        await addSubscription(subscription, resolvedChannel, resolvedRecipient);
         console.log('New subscription added');
-        res.json({ success: true });
+        res.json({ success: true, channel: resolvedChannel });
     } catch (err) {
         console.error('Subscribe error:', err.message);
-        res.status(500).json({ error: 'Database error' });
+        const status = err.statusCode || 500;
+        res.status(status).json({ error: status === 400 ? err.message : 'Database error' });
     }
 });
 

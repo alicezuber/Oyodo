@@ -16,28 +16,24 @@ const statTotal = document.getElementById('statTotal');
 const statToday = document.getElementById('statToday');
 const authBtn = document.getElementById('authBtn');
 const authBadge = document.getElementById('authBadge');
+const authDebug = document.getElementById('authDebug');
 const sendLockOverlay = document.getElementById('sendLockOverlay');
 const sendLockMessage = document.getElementById('sendLockMessage');
 
 const sendForm = document.getElementById('sendForm');
 const apiKeyInput = document.getElementById('apiKeyInput');
-const channelSelect = document.getElementById('channelSelect');
-const channelCustomWrap = document.getElementById('channelCustomWrap');
-const channelCustomInput = document.getElementById('channelCustomInput');
-const recipientTargetInput = document.getElementById('recipientTargetInput');
-const titleInput = document.getElementById('titleInput');
-const bodyInput = document.getElementById('bodyInput');
-const detailInput = document.getElementById('detailInput');
-const titleCount = document.getElementById('titleCount');
-const bodyCount = document.getElementById('bodyCount');
 const detailCount = document.getElementById('detailCount');
 const toggleApiKey = document.getElementById('toggleApiKey');
 const sendResult = document.getElementById('sendResult');
 const sendBtn = document.getElementById('sendBtn');
 const userChannelSelect = document.getElementById('userChannelSelect');
-const userChannelCustomWrap = document.getElementById('userChannelCustomWrap');
-const userChannelCustomInput = document.getElementById('userChannelCustom');
-const userRecipientInput = document.getElementById('userRecipientInput');
+const userIdentityDisplay = document.getElementById('userIdentityDisplay');
+const channelSelectHint = document.getElementById('channelSelectHint');
+const joinChannelInput = document.getElementById('joinChannelInput');
+const joinPasscodeInput = document.getElementById('joinPasscodeInput');
+const joinChannelBtn = document.getElementById('joinChannelBtn');
+const joinChannelStatus = document.getElementById('joinChannelStatus');
+const joinChannelHint = document.getElementById('joinChannelHint');
 const tabItems = Array.from(document.querySelectorAll('.tab-item'));
 const tabPanes = {
     home: document.getElementById('homePane'),
@@ -64,8 +60,7 @@ const MODE_BREAKPOINT = 900;
 const PRESET_CHANNELS = ['global', 'ops', 'alpha'];
 const STORAGE_KEYS = {
     apiKey: 'oyodo_api_key',
-    userChannel: 'oyodo_user_channel',
-    userRecipient: 'oyodo_user_recipient'
+    userChannel: 'oyodo_user_channel'
 };
 const AUTH_CONFIG = {
     issuer: 'https://auth.baiyun.cv',
@@ -91,9 +86,26 @@ let authState = {
     roles: [],
     tokens: null
 };
+let subscriptionOptions = ['global'];
+
+function getAccessToken() {
+    return authState.tokens?.accessToken || null;
+}
+
+function getCurrentRecipientId() {
+    return authState.user?.id || null;
+}
+
+function normalizeRoleName(role) {
+    if (role === null || role === undefined) return '';
+    if (typeof role === 'string') return role.trim().toLowerCase();
+    return String(role).trim().toLowerCase();
+}
 
 function hasRole(role) {
-    return authState.roles?.includes(role);
+    const target = normalizeRoleName(role);
+    if (!target) return false;
+    return (authState.roles || []).some(r => normalizeRoleName(r) === target);
 }
 
 function canSendNotifications() {
@@ -102,6 +114,179 @@ function canSendNotifications() {
 
 function canManageSubscriptions() {
     return authState.isAuthenticated && (hasRole('admin') || hasRole('moderator'));
+}
+
+function formatChannelLabel(channel) {
+    if (!channel) return '';
+    if (channel === 'global') return 'GLOBAL // 全域';
+    return `${channel.toUpperCase()} // 專屬頻道`;
+}
+
+function setSubscriptionOptions(channels = []) {
+    if (!userChannelSelect) return;
+    const normalized = Array.from(
+        new Set(
+            (channels || [])
+                .map(ch => normalizeChannelInput(ch))
+                .filter(Boolean)
+        )
+    );
+    if (!normalized.includes('global')) {
+        normalized.unshift('global');
+    }
+    subscriptionOptions = normalized;
+    const previous = getUserChannel();
+    userChannelSelect.innerHTML = normalized
+        .map(ch => `<option value="${ch}">${formatChannelLabel(ch)}</option>`)
+        .join('');
+    if (normalized.includes(previous)) {
+        userChannelSelect.value = previous;
+    } else {
+        userChannelSelect.value = 'global';
+        saveUserPreferences();
+    }
+}
+
+function setUserIdentityDisplay() {
+    if (!userIdentityDisplay) return;
+    if (authState.isAuthenticated) {
+        const id = authState.user?.id || '未知 ID';
+        const name = authState.user?.displayName || authState.user?.email || '';
+        userIdentityDisplay.textContent = name ? `${name}｜${id}` : `使用者｜${id}`;
+    } else {
+        userIdentityDisplay.textContent = '未登入｜訪客裝置';
+    }
+}
+
+function setJoinControlsEnabled(enabled) {
+    if (!joinChannelInput || !joinPasscodeInput || !joinChannelBtn) return;
+    if (enabled) {
+        joinChannelInput.removeAttribute('disabled');
+        joinPasscodeInput.removeAttribute('disabled');
+        joinChannelBtn.removeAttribute('disabled');
+        joinChannelHint.textContent = '輸入頻道名稱與 6 位密碼即可加入。';
+    } else {
+        joinChannelInput.value = '';
+        joinPasscodeInput.value = '';
+        joinChannelInput.setAttribute('disabled', 'disabled');
+        joinPasscodeInput.setAttribute('disabled', 'disabled');
+        joinChannelBtn.setAttribute('disabled', 'disabled');
+        joinChannelHint.textContent = '登入後即可加入專屬頻道。';
+    }
+}
+
+function setJoinStatus(type, message) {
+    if (!joinChannelStatus) return;
+    if (!message) {
+        joinChannelStatus.hidden = true;
+        joinChannelStatus.textContent = '';
+        joinChannelStatus.className = 'join-status';
+        return;
+    }
+    joinChannelStatus.hidden = false;
+    joinChannelStatus.textContent = message;
+    joinChannelStatus.className = `join-status ${type}`;
+}
+
+function getUserChannel() {
+    return normalizeChannelInput(userChannelSelect?.value) || 'global';
+}
+
+function getSelectedSubscriptionChannel() {
+    return getUserChannel();
+}
+
+async function authFetch(url, options = {}) {
+    const token = getAccessToken();
+    if (!token) {
+        throw new Error('尚未登入');
+    }
+    const headers = new Headers(options.headers || {});
+    headers.set('Authorization', `Bearer ${token}`);
+    return fetch(url, {
+        ...options,
+        headers
+    });
+}
+
+async function refreshUserChannels() {
+    if (!userChannelSelect) return;
+    if (!authState.isAuthenticated) {
+        setSubscriptionOptions(['global']);
+        setUserIdentityDisplay();
+        setJoinControlsEnabled(false);
+        setJoinStatus();
+        return;
+    }
+    setJoinControlsEnabled(true);
+    setUserIdentityDisplay();
+    const token = getAccessToken();
+    if (!token) {
+        setSubscriptionOptions(['global']);
+        return;
+    }
+    try {
+        const response = await fetch('/api/channels/mine', {
+            headers: {
+                Authorization: `Bearer ${token}`
+            }
+        });
+        if (!response.ok) {
+            throw new Error('無法載入頻道列表');
+        }
+        const data = await response.json();
+        const channels = Array.isArray(data.channels) ? data.channels : [];
+        setSubscriptionOptions(['global', ...channels]);
+        setJoinStatus();
+    } catch (err) {
+        console.error('Load channels failed:', err);
+        setSubscriptionOptions(['global']);
+        setJoinStatus('error', '無法同步頻道');
+    }
+}
+
+async function handleJoinChannel() {
+    if (!authState.isAuthenticated) {
+        setJoinStatus('error', '請先登入後再加入頻道');
+        return;
+    }
+    if (!joinChannelInput || !joinPasscodeInput || !joinChannelBtn) return;
+    const channel = normalizeChannelInput(joinChannelInput.value);
+    const passcode = (joinPasscodeInput.value || '').trim();
+    if (!channel || channel === 'global') {
+        setJoinStatus('error', '請輸入有效的頻道名稱');
+        joinChannelInput.focus();
+        return;
+    }
+    if (!/^\d{6}$/.test(passcode)) {
+        setJoinStatus('error', '密碼需為 6 位數字');
+        joinPasscodeInput.focus();
+        return;
+    }
+    joinChannelBtn.disabled = true;
+    setJoinStatus('info', '驗證中...');
+    try {
+        const response = await authFetch('/api/channels/join', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ channel, passcode })
+        });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || '加入失敗');
+        }
+        setJoinStatus('success', `已加入 #${channel}`);
+        joinChannelInput.value = '';
+        joinPasscodeInput.value = '';
+        await refreshUserChannels();
+    } catch (err) {
+        console.error('Join channel failed:', err);
+        setJoinStatus('error', err.message || '加入失敗');
+    } finally {
+        joinChannelBtn.disabled = false;
+    }
 }
 
 function generateRandomString(length = 64) {
@@ -205,12 +390,17 @@ function extractRolesFromPayload(payload) {
     if (!payload) return [];
     const raw = payload['urn:zitadel:iam:org:project:roles'];
     if (!raw) return [];
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw === 'string') return [raw];
+    if (Array.isArray(raw)) {
+        return raw.map(normalizeRoleName).filter(Boolean);
+    }
+    if (typeof raw === 'string') {
+        return [normalizeRoleName(raw)].filter(Boolean);
+    }
     if (typeof raw === 'object') {
         return Object.entries(raw)
             .filter(([, value]) => value === true || value === 1 || value === 'true')
-            .map(([key]) => key);
+            .map(([key]) => normalizeRoleName(key))
+            .filter(Boolean);
     }
     return [];
 }
@@ -257,6 +447,17 @@ function applyAuthState() {
         } else {
             authBadge.hidden = true;
             authBadge.textContent = '';
+        }
+    }
+    if (authDebug) {
+        if (authState.isAuthenticated) {
+            const scope = authState.roles?.join(', ') || 'none';
+            const sendAllowed = canSendNotifications();
+            authDebug.textContent = `roles: [${scope}] • canSend: ${sendAllowed}`;
+            authDebug.hidden = false;
+        } else {
+            authDebug.hidden = true;
+            authDebug.textContent = '';
         }
     }
     updateAccessControls();
