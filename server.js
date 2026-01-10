@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const path = require('path');
 const webpush = require('web-push');
 const mysql = require('mysql2/promise');
 const { v4: uuidv4 } = require('uuid');
@@ -31,6 +32,9 @@ webpush.setVapidDetails(
 
 app.use(express.json());
 app.use(express.static('public'));
+app.get(['/auth/callback'], (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 const DEFAULT_CHANNEL = 'global';
 const ROLE_PRIORITY = ['admin', 'moderator', 'subscriber'];
