@@ -3,9 +3,14 @@ const express = require('express');
 const webpush = require('web-push');
 const mysql = require('mysql2/promise');
 const { v4: uuidv4 } = require('uuid');
+const { createRemoteJWKSet, jwtVerify } = require('jose');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const ZITADEL_ISSUER = (process.env.ZITADEL_ISSUER || 'https://auth.baiyun.cv').replace(/\/$/, '');
+const ZITADEL_CLIENT_ID = process.env.ZITADEL_CLIENT_ID || '354957630411702491';
+const jwksUri = new URL('/oauth/v2/keys', ZITADEL_ISSUER);
+const remoteJwks = createRemoteJWKSet(jwksUri);
 
 const poolOyodo = mysql.createPool({
     host: process.env.DB_HOST,
@@ -28,6 +33,8 @@ app.use(express.json());
 app.use(express.static('public'));
 
 const DEFAULT_CHANNEL = 'global';
+const ROLE_PRIORITY = ['admin', 'moderator', 'subscriber'];
+const SEND_ALLOWED_ROLES = ['admin', 'moderator'];
 
 function normalizeChannel(value, fallback = DEFAULT_CHANNEL) {
     const normalized = (value ?? '').trim();
@@ -40,8 +47,124 @@ function normalizeRecipient(value) {
     return normalized || null;
 }
 
-async function getSubscriptions() {
-    const [rows] = await poolOyodo.query('SELECT * FROM subscriptions');
+function extractRoles(payload) {
+    if (!payload) return [];
+    const raw = payload['urn:zitadel:iam:org:project:roles'];
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') return [raw];
+    if (typeof raw === 'object') {
+        return Object.entries(raw)
+            .filter(([, value]) => value === true || value === 1 || value === 'true')
+            .map(([key]) => key);
+    }
+    return [];
+}
+
+function getPrimaryRole(roles = []) {
+    for (const role of ROLE_PRIORITY) {
+        if (roles.includes(role)) return role;
+    }
+    return roles[0] || null;
+}
+
+async function verifyBearerToken(authHeader) {
+    if (!authHeader || !authHeader.toLowerCase().startsWith('bearer ')) {
+        const err = new Error('Missing bearer token');
+        err.statusCode = 401;
+        throw err;
+    }
+
+    const token = authHeader.slice(7).trim();
+    if (!token) {
+        const err = new Error('Invalid bearer token');
+        err.statusCode = 401;
+        throw err;
+    }
+
+    try {
+        const { payload } = await jwtVerify(token, remoteJwks, {
+            issuer: ZITADEL_ISSUER,
+            audience: ZITADEL_CLIENT_ID
+        });
+        return payload;
+    } catch (error) {
+        const err = new Error('Token verification failed');
+        err.statusCode = 401;
+        throw err;
+    }
+}
+
+function buildUserProfile(payload) {
+    if (!payload) return null;
+    const roles = extractRoles(payload);
+    return {
+        id: payload.sub || null,
+        email: payload.email || null,
+        name: payload.name || payload.preferred_username || null,
+        roles,
+        primaryRole: getPrimaryRole(roles)
+    };
+}
+
+async function oidcAuth(req, res, next) {
+    try {
+        const payload = await verifyBearerToken(req.headers.authorization);
+        const user = buildUserProfile(payload);
+        if (!user) {
+            return res.status(401).json({ error: 'Failed to build user profile' });
+        }
+        req.oidcUser = user;
+        next();
+    } catch (err) {
+        const status = err.statusCode || 401;
+        res.status(status).json({ error: err.message || 'Authorization failed' });
+    }
+}
+
+function requireRoles(allowedRoles = []) {
+    const normalized = Array.isArray(allowedRoles) ? allowedRoles.filter(Boolean) : [allowedRoles].filter(Boolean);
+    const allowedSet = new Set(normalized);
+    return (req, res, next) => {
+        const user = req.oidcUser;
+        if (!user) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        if (allowedSet.size === 0) {
+            return next();
+        }
+        const hasAllowedRole = (user.roles || []).some(role => allowedSet.has(role));
+        if (!hasAllowedRole) {
+            return res.status(403).json({ error: 'Insufficient role' });
+        }
+        next();
+    };
+}
+
+async function getSubscriptions(filters = {}) {
+    const { channel, recipientId } = filters;
+    const conditions = [];
+    const params = [];
+    let query = `
+        SELECT endpoint, p256dh, auth, channel, recipient_id
+        FROM subscriptions
+    `;
+
+    if (recipientId) {
+        conditions.push('LOWER(recipient_id) = LOWER(?)');
+        params.push(recipientId.trim());
+    }
+
+    if (channel) {
+        conditions.push('channel = ?');
+        params.push(normalizeChannel(channel, null));
+    }
+
+    if (conditions.length > 0) {
+        query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    const [rows] = await poolOyodo.query(query, params);
     return rows.map(row => ({
         endpoint: row.endpoint,
         keys: {
@@ -106,6 +229,59 @@ async function getAllNotifications() {
     }));
 }
 
+async function broadcastNotification({ title, body, detail, channel, recipientId }) {
+    if (!title || !body) {
+        const error = new Error('Title and body are required');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const notificationId = uuidv4();
+    const targetChannel = normalizeChannel(channel, null);
+    const targetRecipient = normalizeRecipient(recipientId);
+
+    await saveNotification(notificationId, title, body, detail || null, targetChannel, targetRecipient);
+
+    const payload = JSON.stringify({
+        title,
+        body,
+        notificationId,
+        channel: targetChannel,
+        recipientId: targetRecipient
+    });
+
+    const recipients = await getSubscriptions({
+        channel: targetChannel || undefined,
+        recipientId: targetRecipient || undefined
+    });
+
+    const results = { success: 0, failed: 0 };
+    const expiredEndpoints = [];
+
+    for (const subscription of recipients) {
+        try {
+            await webpush.sendNotification(subscription, payload);
+            results.success++;
+        } catch (err) {
+            console.error('Push failed:', err.message);
+            results.failed++;
+            if (err.statusCode === 410 || err.statusCode === 404) {
+                expiredEndpoints.push(subscription.endpoint);
+            }
+        }
+    }
+
+    for (const endpoint of expiredEndpoints) {
+        await removeSubscription(endpoint);
+    }
+
+    return {
+        notificationId,
+        delivered: results.success,
+        failed: results.failed
+    };
+}
+
 function apiKeyAuth(req, res, next) {
     const apiKey = req.headers['x-api-key'];
     if (!apiKey || apiKey !== process.env.API_KEY) {
@@ -116,6 +292,10 @@ function apiKeyAuth(req, res, next) {
 
 app.get('/api/vapid-public-key', (req, res) => {
     res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
+});
+
+app.get('/api/auth/profile', oidcAuth, (req, res) => {
+    res.json({ user: req.oidcUser });
 });
 
 app.post('/api/subscribe', async (req, res) => {
@@ -155,74 +335,41 @@ app.delete('/api/subscribe', async (req, res) => {
 });
 
 app.post('/api/notify', apiKeyAuth, async (req, res) => {
-    const { title, body, detail, channel, recipientId } = req.body;
-    
-    if (!title || !body) {
-        return res.status(400).json({ error: 'Title and body are required' });
-    }
-    
-    const notificationId = uuidv4();
-    const targetChannel = normalizeChannel(channel, null);
-    const targetRecipient = normalizeRecipient(recipientId);
-    
     try {
-        await saveNotification(notificationId, title, body, detail || null, targetChannel, targetRecipient);
-        
-        const payload = JSON.stringify({
-            title,
-            body,
-            notificationId,
-            channel: targetChannel,
-            recipientId: targetRecipient
-        });
-        
-        const subscriptions = await getSubscriptions();
-        const normalizedTargetChannel = targetChannel ? targetChannel.toLowerCase() : null;
-        const normalizedTargetRecipient = targetRecipient ? targetRecipient.toLowerCase() : null;
-
-        const recipients = subscriptions.filter(sub => {
-            const subChannel = normalizeChannel(sub.channel).toLowerCase();
-            const subRecipient = sub.recipientId ? sub.recipientId.trim().toLowerCase() : null;
-            if (normalizedTargetRecipient) {
-                if (!subRecipient || subRecipient !== normalizedTargetRecipient) return false;
-                if (normalizedTargetChannel && subChannel !== normalizedTargetChannel) return false;
-                return true;
-            }
-            if (normalizedTargetChannel) {
-                return subChannel === normalizedTargetChannel;
-            }
-            return true;
-        });
-
-        const results = { success: 0, failed: 0 };
-        const expiredEndpoints = [];
-        
-        for (const subscription of recipients) {
-            try {
-                await webpush.sendNotification(subscription, payload);
-                results.success++;
-            } catch (err) {
-                console.error('Push failed:', err.message);
-                results.failed++;
-                if (err.statusCode === 410 || err.statusCode === 404) {
-                    expiredEndpoints.push(subscription.endpoint);
-                }
-            }
-        }
-        
-        for (const endpoint of expiredEndpoints) {
-            await removeSubscription(endpoint);
-        }
-        
+        const result = await broadcastNotification(req.body || {});
         res.json({
             success: true,
-            notificationId,
-            delivered: results.success,
-            failed: results.failed
+            ...result
         });
     } catch (err) {
         console.error('Notify error:', err.message);
-        res.status(500).json({ error: 'Server error' });
+        const status = err.statusCode || 500;
+        res.status(status).json({ error: status === 400 ? err.message : 'Server error' });
+    }
+});
+
+app.post('/api/webhook', apiKeyAuth, async (req, res) => {
+    try {
+        await broadcastNotification(req.body || {});
+        res.status(202).end();
+    } catch (err) {
+        console.error('Webhook error:', err.message);
+        const status = err.statusCode || 500;
+        res.status(status).json({ error: status === 400 ? err.message : 'Server error' });
+    }
+});
+
+app.post('/api/send', oidcAuth, requireRoles(SEND_ALLOWED_ROLES), async (req, res) => {
+    try {
+        const result = await broadcastNotification(req.body || {});
+        res.json({
+            success: true,
+            ...result
+        });
+    } catch (err) {
+        console.error('Send error:', err.message);
+        const status = err.statusCode || 500;
+        res.status(status).json({ error: status === 400 ? err.message : 'Server error' });
     }
 });
 

@@ -9,10 +9,15 @@ const detailTime = document.getElementById('detailTime');
 const detailChannel = document.getElementById('detailChannel');
 const detailRecipient = document.getElementById('detailRecipient');
 const closeDetailBtn = document.getElementById('closeDetailBtn');
+const detailModalContent = document.querySelector('.detail-modal .modal-content');
 const notificationList = document.getElementById('notificationList');
 const recentList = document.getElementById('recentList');
 const statTotal = document.getElementById('statTotal');
 const statToday = document.getElementById('statToday');
+const authBtn = document.getElementById('authBtn');
+const authBadge = document.getElementById('authBadge');
+const sendLockOverlay = document.getElementById('sendLockOverlay');
+const sendLockMessage = document.getElementById('sendLockMessage');
 
 const sendForm = document.getElementById('sendForm');
 const apiKeyInput = document.getElementById('apiKeyInput');
@@ -51,6 +56,9 @@ let touchStartX = 0;
 let touchStartY = 0;
 let touchDeltaX = 0;
 let isTouchTracking = false;
+let detailTouchStartX = 0;
+let detailTouchStartY = 0;
+let isDetailTouchTracking = false;
 
 const MODE_BREAKPOINT = 900;
 const PRESET_CHANNELS = ['global', 'ops', 'alpha'];
@@ -59,6 +67,364 @@ const STORAGE_KEYS = {
     userChannel: 'oyodo_user_channel',
     userRecipient: 'oyodo_user_recipient'
 };
+const AUTH_CONFIG = {
+    issuer: 'https://auth.baiyun.cv',
+    clientId: '354957630411702491',
+    redirectUri: `${window.location.origin.replace(/\/$/, '')}/auth/callback`,
+    scopes: 'openid profile email urn:zitadel:iam:org:project:roles'
+};
+const AUTH_STORAGE_KEYS = {
+    tokens: 'oyodo_auth_tokens',
+    pkce: 'oyodo_pkce_params'
+};
+const ROLE_PRIORITY = ['admin', 'moderator', 'subscriber'];
+const ROLE_LABELS = {
+    admin: '管理員',
+    moderator: '版主',
+    subscriber: '訂閱者'
+};
+const RANDOM_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+
+let authState = {
+    isAuthenticated: false,
+    user: null,
+    roles: [],
+    tokens: null
+};
+
+function hasRole(role) {
+    return authState.roles?.includes(role);
+}
+
+function canSendNotifications() {
+    return authState.isAuthenticated && (hasRole('admin') || hasRole('moderator'));
+}
+
+function canManageSubscriptions() {
+    return authState.isAuthenticated && (hasRole('admin') || hasRole('moderator'));
+}
+
+function generateRandomString(length = 64) {
+    const array = new Uint32Array(length);
+    if (!window.crypto?.getRandomValues) {
+        throw new Error('此瀏覽器不支援安全隨機數，請改用支援的環境');
+    }
+    window.crypto.getRandomValues(array);
+    return Array.from(array, value => RANDOM_CHARSET[value % RANDOM_CHARSET.length]).join('');
+}
+
+function base64UrlEncode(buffer) {
+    let bytes;
+    if (buffer instanceof ArrayBuffer) {
+        bytes = new Uint8Array(buffer);
+    } else if (buffer instanceof Uint8Array) {
+        bytes = buffer;
+    } else {
+        bytes = new TextEncoder().encode(buffer);
+    }
+    let binary = '';
+    bytes.forEach(b => {
+        binary += String.fromCharCode(b);
+    });
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function sha256Base64Url(input) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(input);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return base64UrlEncode(digest);
+}
+
+function savePkceParams(params) {
+    sessionStorage.setItem(AUTH_STORAGE_KEYS.pkce, JSON.stringify(params));
+}
+
+function loadPkceParams() {
+    const raw = sessionStorage.getItem(AUTH_STORAGE_KEYS.pkce);
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw);
+    } catch (err) {
+        console.error('PKCE params parse failed:', err);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.pkce);
+        return null;
+    }
+}
+
+function clearPkceParams() {
+    sessionStorage.removeItem(AUTH_STORAGE_KEYS.pkce);
+}
+
+function saveAuthTokens(tokenResponse) {
+    const expiresIn = tokenResponse.expires_in || 0;
+    const stored = {
+        accessToken: tokenResponse.access_token,
+        idToken: tokenResponse.id_token,
+        refreshToken: tokenResponse.refresh_token || null,
+        tokenType: tokenResponse.token_type,
+        scope: tokenResponse.scope,
+        expiresAt: Date.now() + expiresIn * 1000
+    };
+    sessionStorage.setItem(AUTH_STORAGE_KEYS.tokens, JSON.stringify(stored));
+    return stored;
+}
+
+function loadAuthTokens() {
+    const raw = sessionStorage.getItem(AUTH_STORAGE_KEYS.tokens);
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw);
+    } catch (err) {
+        console.error('Token parse failed:', err);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.tokens);
+        return null;
+    }
+}
+
+function clearAuthTokens() {
+    sessionStorage.removeItem(AUTH_STORAGE_KEYS.tokens);
+}
+
+function decodeJwtPayload(token) {
+    if (!token) return null;
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(base64.length + (4 - (base64.length % 4)) % 4, '=');
+    try {
+        const json = atob(padded);
+        return JSON.parse(json);
+    } catch (err) {
+        console.error('Failed to decode JWT payload:', err);
+        return null;
+    }
+}
+
+function extractRolesFromPayload(payload) {
+    if (!payload) return [];
+    const raw = payload['urn:zitadel:iam:org:project:roles'];
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') return [raw];
+    if (typeof raw === 'object') {
+        return Object.entries(raw)
+            .filter(([, value]) => value === true || value === 1 || value === 'true')
+            .map(([key]) => key);
+    }
+    return [];
+}
+
+function getPrimaryRole(roles = []) {
+    for (const role of ROLE_PRIORITY) {
+        if (roles.includes(role)) return role;
+    }
+    return roles[0] || null;
+}
+
+function updateAuthStateFromTokens(tokenSet) {
+    const payload = decodeJwtPayload(tokenSet?.idToken);
+    if (!payload) return;
+    const roles = extractRolesFromPayload(payload);
+    authState = {
+        isAuthenticated: true,
+        user: {
+            displayName: payload.name || payload.preferred_username || payload.email || '已登入',
+            email: payload.email || null,
+            id: payload.sub || null
+        },
+        roles,
+        tokens: tokenSet
+    };
+    applyAuthState();
+}
+
+function applyAuthState() {
+    if (authBtn) {
+        if (authState.isAuthenticated) {
+            authBtn.textContent = '登出';
+        } else {
+            authBtn.textContent = '登入系統';
+        }
+    }
+    if (authBadge) {
+        if (authState.isAuthenticated) {
+            const primaryRole = getPrimaryRole(authState.roles);
+            const roleLabel = ROLE_LABELS[primaryRole] || '登入中';
+            const name = authState.user?.displayName || authState.user?.email || '';
+            authBadge.textContent = name ? `${roleLabel}｜${name}` : roleLabel;
+            authBadge.hidden = false;
+        } else {
+            authBadge.hidden = true;
+            authBadge.textContent = '';
+        }
+    }
+    updateAccessControls();
+}
+
+function restoreAuthSession() {
+    const stored = loadAuthTokens();
+    if (!stored) {
+        applyAuthState();
+        return;
+    }
+    if (stored.expiresAt && stored.expiresAt <= Date.now()) {
+        clearAuthTokens();
+        applyAuthState();
+        return;
+    }
+    updateAuthStateFromTokens(stored);
+}
+
+async function beginLogin() {
+    try {
+        const codeVerifier = generateRandomString(96);
+        const state = generateRandomString(32);
+        const codeChallenge = await sha256Base64Url(codeVerifier);
+        savePkceParams({ codeVerifier, state, createdAt: Date.now() });
+
+        const authorizeUrl = new URL(`${AUTH_CONFIG.issuer}/oauth/v2/authorize`);
+        authorizeUrl.searchParams.set('client_id', AUTH_CONFIG.clientId);
+        authorizeUrl.searchParams.set('response_type', 'code');
+        authorizeUrl.searchParams.set('redirect_uri', AUTH_CONFIG.redirectUri);
+        authorizeUrl.searchParams.set('scope', AUTH_CONFIG.scopes);
+        authorizeUrl.searchParams.set('state', state);
+        authorizeUrl.searchParams.set('code_challenge', codeChallenge);
+        authorizeUrl.searchParams.set('code_challenge_method', 'S256');
+
+        window.location.href = authorizeUrl.toString();
+    } catch (err) {
+        console.error('Auth init failed:', err);
+        alert('無法啟動登入流程，請稍後再試');
+    }
+}
+
+function isAuthCallbackRoute() {
+    return window.location.pathname.startsWith('/auth/callback');
+}
+
+async function handleAuthRedirect() {
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get('error');
+    if (error) {
+        alert('登入失敗：' + (params.get('error_description') || error));
+        window.location.replace('/');
+        return;
+    }
+
+    const code = params.get('code');
+    const state = params.get('state');
+    const pkce = loadPkceParams();
+    clearPkceParams();
+
+    if (!code || !state || !pkce || state !== pkce.state) {
+        alert('登入驗證失敗，請重新登入');
+        window.location.replace('/');
+        return;
+    }
+
+    try {
+        const tokenResponse = await exchangeCodeForTokens(code, pkce.codeVerifier);
+        saveAuthTokens(tokenResponse);
+    } catch (err) {
+        console.error('Token exchange failed:', err);
+        alert('無法完成登入流程，請稍後再試');
+    } finally {
+        window.location.replace('/');
+    }
+}
+
+async function exchangeCodeForTokens(code, codeVerifier) {
+    const body = new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: AUTH_CONFIG.clientId,
+        code,
+        redirect_uri: AUTH_CONFIG.redirectUri,
+        code_verifier: codeVerifier
+    });
+
+    const response = await fetch(`${AUTH_CONFIG.issuer}/oauth/v2/token`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: body.toString()
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Token endpoint error: ${errorText}`);
+    }
+
+    return response.json();
+}
+
+function logout() {
+    clearAuthTokens();
+    authState = {
+        isAuthenticated: false,
+        user: null,
+        roles: [],
+        tokens: null
+    };
+    applyAuthState();
+}
+
+function updateAccessControls() {
+    updateSendPanelAccess();
+    updateSubscriptionAccess();
+}
+
+function updateSendPanelAccess() {
+    if (!sendForm || !sendLockOverlay || !sendLockMessage) return;
+    const allowed = canSendNotifications();
+    if (allowed) {
+        sendLockOverlay.hidden = true;
+        setFormDisabled(sendForm, false);
+        return;
+    }
+    const message = authState.isAuthenticated
+        ? '需要版主以上權限才能發送訊息'
+        : '請登入後使用廣播功能';
+    sendLockMessage.textContent = message;
+    sendLockOverlay.hidden = false;
+    setFormDisabled(sendForm, true);
+}
+
+function setFormDisabled(form, disabled) {
+    if (!form) return;
+    form.querySelectorAll('input, textarea, select, button').forEach(el => {
+        el.disabled = disabled;
+    });
+    form.classList.toggle('form-disabled', disabled);
+}
+
+function updateSubscriptionAccess() {
+    if (!userChannelSelect) return;
+    const allowCustomChannel = canManageSubscriptions();
+    if (allowCustomChannel) {
+        userChannelSelect.disabled = false;
+        if (userChannelCustomInput) userChannelCustomInput.disabled = false;
+        return;
+    }
+    userChannelSelect.value = 'global';
+    userChannelSelect.disabled = true;
+    if (userChannelCustomInput) {
+        userChannelCustomInput.value = '';
+        userChannelCustomInput.disabled = true;
+    }
+    if (userChannelCustomWrap) {
+        userChannelCustomWrap.classList.remove('active');
+    }
+    applyChannelSelection(
+        userChannelSelect,
+        userChannelCustomInput,
+        userChannelCustomWrap,
+        'global',
+        'global'
+    );
+    saveUserPreferences();
+}
 
 function normalizeChannelInput(value) {
     return (value || '').trim().toLowerCase();
@@ -121,6 +487,7 @@ async function init() {
     initSendForm();
     initSubscriptionControls();
     initGestures();
+    initDetailGestures();
     setupModeDetection();
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
         updateStatus('unsupported', '不支援推播');
@@ -256,10 +623,17 @@ function initSubscriptionControls() {
         userRecipientInput.value = userRecipientInput.value.trim();
         saveUserPreferences();
     });
+
+    updateSubscriptionAccess();
 }
 
 async function handleSendNotification(e) {
     e.preventDefault();
+
+    if (!canSendNotifications()) {
+        showSendResult('error', '你沒有權限發送訊息');
+        return;
+    }
     
     const apiKey = apiKeyInput.value.trim();
     const title = titleInput.value.trim();
@@ -439,6 +813,13 @@ function initGestures() {
     surface.addEventListener('touchend', handleTouchEnd);
 }
 
+function initDetailGestures() {
+    if (!detailModalContent) return;
+    detailModalContent.addEventListener('touchstart', handleDetailTouchStart, { passive: true });
+    detailModalContent.addEventListener('touchmove', handleDetailTouchMove, { passive: false });
+    detailModalContent.addEventListener('touchend', handleDetailTouchEnd);
+}
+
 function handleTouchStart(event) {
     if (event.touches.length !== 1 || detailModal?.classList.contains('active')) return;
     const touch = event.touches[0];
@@ -476,6 +857,40 @@ function handleTouchEnd(event) {
         goToAdjacentTab('next');
     } else {
         goToAdjacentTab('prev');
+    }
+}
+
+function handleDetailTouchStart(event) {
+    if (!detailModal?.classList.contains('active') || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    detailTouchStartX = touch.clientX;
+    detailTouchStartY = touch.clientY;
+    isDetailTouchTracking = true;
+}
+
+function handleDetailTouchMove(event) {
+    if (!isDetailTouchTracking || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - detailTouchStartX;
+    const deltaY = touch.clientY - detailTouchStartY;
+
+    if (Math.abs(deltaY) > Math.abs(deltaX)) {
+        isDetailTouchTracking = false;
+        return;
+    }
+
+    if (deltaX > 10) {
+        event.preventDefault();
+    }
+}
+
+function handleDetailTouchEnd(event) {
+    if (!isDetailTouchTracking) return;
+    isDetailTouchTracking = false;
+
+    const deltaX = event.changedTouches[0].clientX - detailTouchStartX;
+    if (deltaX > 80) {
+        closeDetail();
     }
 }
 
@@ -744,4 +1159,24 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-init();
+function setupAuthControls() {
+    authBtn?.addEventListener('click', () => {
+        if (authState.isAuthenticated) {
+            logout();
+        } else {
+            beginLogin();
+        }
+    });
+}
+
+function bootstrap() {
+    if (isAuthCallbackRoute()) {
+        handleAuthRedirect();
+        return;
+    }
+    restoreAuthSession();
+    setupAuthControls();
+    init();
+}
+
+bootstrap();

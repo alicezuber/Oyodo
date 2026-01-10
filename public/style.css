@@ -111,6 +111,19 @@ body {
     stroke-width: 2px;
 }
 
+.tab-item--hidden {
+    display: none !important;
+}
+
+.tab-item.active {
+    color: #fff;
+}
+
+.tab-item.active .tab-icon {
+    transform: translateY(-2px);
+    stroke-width: 2px;
+}
+
 /* --- 內容區域 --- */
 .tab-content {
     flex: 1;
@@ -123,6 +136,17 @@ body {
 }
 
 .tab-pane.active { display: block; }
+
+.tab-pane--hidden {
+    display: none !important;
+}
+
+@media (max-width: 899px) {
+    .tab-item[data-tab="send"],
+    #sendPane {
+        display: none !important;
+    }
+}
 
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(10px); }
@@ -174,6 +198,12 @@ body {
     flex-wrap: wrap;
 }
 
+.auth-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 /* --- 按鈕設計 (黑卡風格) --- */
 .btn {
     display: inline-flex;
@@ -209,6 +239,28 @@ body {
     color: #666;
     cursor: not-allowed;
     box-shadow: none;
+}
+
+/* 次按鈕：透明黑框黑字 */
+.btn-secondary {
+    background: transparent;
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    color: #fff;
+    border-color: #666;
+    transform: translateY(-1px);
+}
+
+.auth-badge {
+    font-size: 0.75rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-sub);
+    border: 1px solid var(--border-color);
+    padding: 0.25rem 0.5rem;
 }
 
 /* --- 狀態標籤 --- */
@@ -284,6 +336,26 @@ body {
     font-size: 0.8rem;
     color: var(--text-sub);
     margin-top: 0.2rem;
+}
+
+.panel-lock {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 2rem;
+    background: rgba(5, 5, 5, 0.85);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--border-color);
+    z-index: 2;
+}
+
+.panel-lock p {
+    color: var(--text-sub);
+    letter-spacing: 1px;
+    text-transform: uppercase;
 }
 
 /* --- 通知列表 --- */

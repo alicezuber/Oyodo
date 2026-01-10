@@ -35,6 +35,7 @@
                     <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                 </svg>
                 <span>指令</span>
+                <span class="tab-hint">桌面限定</span>
             </button>
         </nav>
 
@@ -54,6 +55,12 @@
                                 <button id="subscribeBtn" class="btn btn-primary" disabled>
                                     啟動系統
                                 </button>
+                                <div class="auth-controls">
+                                    <button id="authBtn" class="btn btn-secondary">
+                                        登入系統
+                                    </button>
+                                    <span id="authBadge" class="auth-badge" hidden></span>
+                                </div>
                             </div>
                             <div class="channel-control">
                                 <label for="userChannelSelect">訂閱頻道（Channel）</label>
@@ -141,6 +148,9 @@
                                 <span class="eyebrow">控台</span>
                                 <h3>廣播中心</h3>
                             </div>
+                        </div>
+                        <div class="panel-lock" id="sendLockOverlay" hidden>
+                            <p id="sendLockMessage">請登入後使用廣播功能。</p>
                         </div>
                         
                         <form id="sendForm" class="send-form">

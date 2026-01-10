@@ -49,7 +49,9 @@ npm run dev
 
 ## API 文檔
 
-### 發送通知
+所有需要驗證的端點都必須在 Header 夾帶 `X-API-Key: <your-api-key>`，否則會回傳 401。必要欄位錯誤會回 400，其他伺服器錯誤則回 500。
+
+### `/api/notify` — 直接發送通知
 
 ```http
 POST /api/notify
@@ -59,52 +61,60 @@ Content-Type: application/json
 {
     "title": "通知標題",
     "body": "通知內文",
-    "detail": "點擊後顯示的詳細內容（可選）"
+    "detail": "點擊後顯示的詳細內容（選填）",
+    "channel": "global",               // 選填，預設全頻道
+    "recipientId": "device-42"         // 選填，指定單一裝置
 }
 ```
 
-**回應：**
+**回應**
 
 ```json
 {
-    "success": true,
-    "notificationId": "uuid",
-    "delivered": 5,
-    "failed": 0
+  "success": true,
+  "notificationId": "uuid",
+  "delivered": 5,
+  "failed": 0
 }
 ```
 
-### 取得通知詳情
+### `/api/webhook` — Webhook 接收端
+
+用來接聽外部系統的推播事件，驗證方式與 `/api/notify` 相同。任何合法 Body 都會先寫入通知歷史，再以同樣規則推播到指定頻道／裝置。
 
 ```http
-GET /api/notification/:id
+POST /api/webhook
+X-API-Key: <your-api-key>
+Content-Type: application/json
+
+{
+    "title": "CI Pipeline",
+    "body": "部署完成",
+    "detail": "{...}",          // 選填
+    "channel": "ops",           // 選填，預設 global
+    "recipientId": "agent-7"    // 選填
+}
 ```
 
-### 取得通知歷史
+回應：`202 Accepted` 無 body。
 
-```http
-GET /api/notifications
-```
-
-### 取得 VAPID 公鑰
-
-```http
-GET /api/vapid-public-key
-```
-
-### 訂閱推播
+### `/api/subscribe` — 訂閱推播
 
 ```http
 POST /api/subscribe
 Content-Type: application/json
 
 {
-    "endpoint": "...",
-    "keys": { "p256dh": "...", "auth": "..." }
+    "subscription": {
+        "endpoint": "...",
+        "keys": { "p256dh": "...", "auth": "..." }
+    },
+    "channel": "global",        // 選填，預設 global
+    "recipientId": "device-42"  // 選填
 }
 ```
 
-### 取消訂閱
+### `/api/subscribe` — 取消訂閱
 
 ```http
 DELETE /api/subscribe
@@ -113,6 +123,24 @@ Content-Type: application/json
 {
     "endpoint": "..."
 }
+```
+
+### `/api/notification/:id` — 取得單筆詳情
+
+```http
+GET /api/notification/{notificationId}
+```
+
+### `/api/notifications` — 取得歷史列表
+
+```http
+GET /api/notifications
+```
+
+### `/api/vapid-public-key` — 取得推播公鑰
+
+```http
+GET /api/vapid-public-key
 ```
 
 ## 外部服務整合範例
