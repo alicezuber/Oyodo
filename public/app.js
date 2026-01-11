@@ -41,6 +41,10 @@ const tabPanes = {
     send: document.getElementById('sendPane')
 };
 const sendTabItem = tabItems.find(item => item.dataset.tab === 'send');
+const channelSelect = document.getElementById('channelSelect');
+const userChannelCustomWrap = document.getElementById('channelCustomWrap');
+const userChannelCustomInput = document.getElementById('channelCustomInput');
+const userRecipientInput = document.getElementById('recipientTargetInput');
 
 let swRegistration = null;
 let isSubscribed = false;
