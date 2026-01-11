@@ -414,19 +414,44 @@ function extractRolesFromPayload(payload) {
     if (!payload) return [];
     const raw = payload['urn:zitadel:iam:org:project:roles'];
     if (!raw) return [];
-    if (Array.isArray(raw)) {
-        return raw.map(normalizeRoleName).filter(Boolean);
+
+    const collected = new Set();
+    const pushRole = role => {
+        const normalized = normalizeRoleName(role);
+        if (normalized) collected.add(normalized);
+    };
+
+    const processValue = value => {
+        if (!value) return;
+        if (Array.isArray(value)) {
+            value.forEach(processValue);
+            return;
+        }
+        if (typeof value === 'string') {
+            pushRole(value);
+            return;
+        }
+        if (value === true || value === 1 || value === 'true') {
+            return;
+        }
+        if (typeof value === 'object') {
+            Object.entries(value).forEach(([key, nested]) => {
+                if (nested === true || nested === 1 || nested === 'true') {
+                    pushRole(key);
+                } else {
+                    processValue(nested);
+                }
+            });
+        }
+    };
+
+    if (Array.isArray(raw) || typeof raw === 'string') {
+        processValue(raw);
+    } else if (typeof raw === 'object') {
+        Object.values(raw).forEach(processValue);
     }
-    if (typeof raw === 'string') {
-        return [normalizeRoleName(raw)].filter(Boolean);
-    }
-    if (typeof raw === 'object') {
-        return Object.entries(raw)
-            .filter(([, value]) => value === true || value === 1 || value === 'true')
-            .map(([key]) => normalizeRoleName(key))
-            .filter(Boolean);
-    }
-    return [];
+
+    return Array.from(collected);
 }
 
 function getPrimaryRole(roles = []) {
