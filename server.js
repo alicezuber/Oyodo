@@ -463,6 +463,10 @@ app.get('/api/notifications', async (req, res) => {
     }
 });
 
+app.use((req, res) => {
+    res.status(404).sendFile(path.join(__dirname, 'public', '404.html'));
+});
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Oyodo Push Service running on 0.0.0.0:${PORT}`);
     

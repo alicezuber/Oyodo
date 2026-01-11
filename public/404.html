@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>信號迷航｜404</title>
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        body {
+            display: flex;
+            min-height: 100vh;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-color);
+            color: var(--text-main);
+            text-align: center;
+        }
+        .lost-container {
+            max-width: 520px;
+            padding: 2rem;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.02);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+        }
+        .lost-code {
+            letter-spacing: 0.6rem;
+            font-size: 1rem;
+            color: var(--text-sub);
+        }
+        h1 {
+            font-size: clamp(2rem, 8vw, 3.4rem);
+            font-weight: 200;
+            margin: 1rem 0;
+            text-transform: uppercase;
+            color: #fff;
+        }
+        p {
+            color: var(--text-sub);
+            line-height: 1.8;
+        }
+        a.btn-home {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 1.5rem;
+            padding: 0 1.8rem;
+            height: 48px;
+            text-decoration: none;
+            color: #000;
+            background: #fff;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            font-weight: 600;
+            border-radius: 4px;
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+        a.btn-home:hover {
+            background: #d4d4d4;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="lost-container">
+        <div class="lost-code">// 404</div>
+        <h1>信號迷航</h1>
+        <p>這個節點沒有回應，也許已經被封存或從未存在。<br>請返回主控台重新校準。</p>
+        <a class="btn-home" href="/">返回控制台</a>
+    </div>
+</body>
+</html>

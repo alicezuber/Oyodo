@@ -623,7 +623,7 @@ function logout() {
     };
     applyAuthState();
 
-    const logoutUrl = new URL(`${AUTH_CONFIG.issuer}/oauth/v2/logout`);
+    const logoutUrl = new URL(`${AUTH_CONFIG.issuer}/oidc/v1/end_session`);
     logoutUrl.searchParams.set('client_id', AUTH_CONFIG.clientId);
     logoutUrl.searchParams.set('post_logout_redirect_uri', AUTH_CONFIG.logoutRedirectUri);
     if (idTokenHint) {

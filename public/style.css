@@ -506,6 +506,118 @@ body {
     font-size: 0.65rem;
 }
 
+.channel-control {
+    margin-top: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.channel-control label {
+    font-size: 0.7rem;
+    color: var(--text-sub);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.select-wrapper {
+    position: relative;
+}
+
+.select-wrapper select {
+    width: 100%;
+    appearance: none;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    color: #fff;
+    padding: 14px 40px 14px 16px;
+    font-size: 0.95rem;
+    border-radius: var(--input-radius);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    transition: all 0.3s ease;
+}
+
+.select-wrapper select:focus {
+    border-color: var(--input-border-strong);
+    background: var(--input-bg-alt);
+}
+
+.select-wrapper select:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
+.select-wrapper select:disabled + .select-caret {
+    opacity: 0.3;
+}
+
+.select-caret {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    border-left: 1px solid var(--text-sub);
+    border-bottom: 1px solid var(--text-sub);
+    transform: translateY(-60%) rotate(-45deg);
+    pointer-events: none;
+}
+
+.field-hint {
+    font-size: 0.75rem;
+    color: var(--text-sub);
+}
+
+.identity-block .identity-display {
+    font-size: 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px dashed rgba(255, 255, 255, 0.2);
+    border-radius: var(--input-radius);
+    background: rgba(255, 255, 255, 0.02);
+    letter-spacing: 0.8px;
+    color: #fff;
+}
+
+.join-channel-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr auto;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+@media (max-width: 680px) {
+    .join-channel-grid {
+        grid-template-columns: 1fr;
+    }
+    .join-channel-grid button {
+        width: 100%;
+    }
+}
+
+.join-channel-grid input {
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: var(--input-radius);
+    padding: 0.85rem 1rem;
+    font-size: 0.95rem;
+    color: #fff;
+}
+
+.join-channel-grid button {
+    height: 48px;
+    border-radius: var(--input-radius);
+}
+
+.custom-channel {
+    display: none;
+    margin-top: 0.75rem;
+}
+
+.custom-channel.active {
+    display: block;
+}
+
 .form-grid {
     display: grid;
     gap: 1.5rem;
