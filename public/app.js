@@ -62,10 +62,12 @@ const STORAGE_KEYS = {
     apiKey: 'oyodo_api_key',
     userChannel: 'oyodo_user_channel'
 };
+const APP_ORIGIN = window.location.origin.replace(/\/$/, '');
 const AUTH_CONFIG = {
     issuer: 'https://auth.baiyun.cv',
     clientId: '354957630411702491',
-    redirectUri: `${window.location.origin.replace(/\/$/, '')}/auth/callback`,
+    redirectUri: `${APP_ORIGIN}/auth/callback`,
+    logoutRedirectUri: APP_ORIGIN,
     scopes: 'openid profile email urn:zitadel:iam:org:project:roles'
 };
 const AUTH_STORAGE_KEYS = {
@@ -164,6 +166,8 @@ function setJoinControlsEnabled(enabled) {
         joinChannelInput.removeAttribute('disabled');
         joinPasscodeInput.removeAttribute('disabled');
         joinChannelBtn.removeAttribute('disabled');
+        joinChannelInput.classList.remove('input-disabled');
+        joinPasscodeInput.classList.remove('input-disabled');
         joinChannelHint.textContent = '輸入頻道名稱與 6 位密碼即可加入。';
     } else {
         joinChannelInput.value = '';
@@ -171,6 +175,8 @@ function setJoinControlsEnabled(enabled) {
         joinChannelInput.setAttribute('disabled', 'disabled');
         joinPasscodeInput.setAttribute('disabled', 'disabled');
         joinChannelBtn.setAttribute('disabled', 'disabled');
+        joinChannelInput.classList.add('input-disabled');
+        joinPasscodeInput.classList.add('input-disabled');
         joinChannelHint.textContent = '登入後即可加入專屬頻道。';
     }
 }
@@ -264,6 +270,7 @@ async function handleJoinChannel() {
         return;
     }
     joinChannelBtn.disabled = true;
+    joinChannelBtn.dataset.loading = 'true';
     setJoinStatus('info', '驗證中...');
     try {
         const response = await authFetch('/api/channels/join', {
@@ -273,10 +280,22 @@ async function handleJoinChannel() {
             },
             body: JSON.stringify({ channel, passcode })
         });
+        const data = await response.json().catch(() => ({}));
+
         if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-            throw new Error(data.error || '加入失敗');
+            const status = response.status;
+            const error = data.error || '加入失敗';
+            if (status === 404) {
+                setJoinStatus('error', `找不到頻道 #${channel}`);
+                return;
+            }
+            if (status === 403) {
+                setJoinStatus('error', '密碼不正確，請再試一次');
+                return;
+            }
+            throw new Error(error);
         }
+
         setJoinStatus('success', `已加入 #${channel}`);
         joinChannelInput.value = '';
         joinPasscodeInput.value = '';
@@ -286,6 +305,7 @@ async function handleJoinChannel() {
         setJoinStatus('error', err.message || '加入失敗');
     } finally {
         joinChannelBtn.disabled = false;
+        delete joinChannelBtn.dataset.loading;
     }
 }
 
@@ -562,6 +582,9 @@ async function exchangeCodeForTokens(code, codeVerifier) {
 }
 
 function logout() {
+    const storedTokens = authState.tokens || loadAuthTokens();
+    const idTokenHint = storedTokens?.idToken || null;
+
     clearAuthTokens();
     authState = {
         isAuthenticated: false,
@@ -570,6 +593,14 @@ function logout() {
         tokens: null
     };
     applyAuthState();
+
+    const logoutUrl = new URL(`${AUTH_CONFIG.issuer}/oauth/v2/logout`);
+    logoutUrl.searchParams.set('client_id', AUTH_CONFIG.clientId);
+    logoutUrl.searchParams.set('post_logout_redirect_uri', AUTH_CONFIG.logoutRedirectUri);
+    if (idTokenHint) {
+        logoutUrl.searchParams.set('id_token_hint', idTokenHint);
+    }
+    window.location.replace(logoutUrl.toString());
 }
 
 function updateAccessControls() {

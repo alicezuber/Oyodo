@@ -1,3 +1,8 @@
+.select-wrapper select:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
 :root {
     /* 核心色票 - 與 Login Theme 一致 */
     --bg-color: #050505;
@@ -11,6 +16,12 @@
     --accent-glow: rgba(255, 255, 255, 0.08);
     --success: #3fb950; /* 較為低調的綠 */
     --error: #f85149;   /* 較為低調的紅 */
+    --input-bg: rgba(255, 255, 255, 0.03);
+    --input-bg-alt: rgba(5, 5, 5, 0.65);
+    --input-border: rgba(255, 255, 255, 0.08);
+    --input-border-strong: rgba(255, 255, 255, 0.2);
+    --input-glow: rgba(255, 255, 255, 0.15);
+    --input-radius: 6px;
     
     --safe-top: env(safe-area-inset-top);
     --safe-bottom: env(safe-area-inset-bottom);
@@ -448,102 +459,39 @@ body {
     text-transform: uppercase;
 }
 
+.form-group input:disabled,
+.form-group textarea:disabled,
+.form-group .input-disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 .form-group input, 
 .form-group textarea {
     width: 100%;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid var(--border-color);
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
     color: #fff;
     padding: 14px 16px;
     font-size: 0.95rem;
-    border-radius: 2px;
-    transition: all 0.3s ease;
+    border-radius: var(--input-radius);
+    transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
     font-family: inherit;
+    caret-color: var(--accent);
+    letter-spacing: 0.5px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.01);
+}
+
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+    color: rgba(255, 255, 255, 0.35);
+    letter-spacing: 0.5px;
 }
 
 .form-group input:focus,
 .form-group textarea:focus {
-    border-color: #555;
-    background: rgba(255, 255, 255, 0.05);
-    box-shadow: 0 0 15px rgba(255, 255, 255, 0.03);
-}
-
-.select-wrapper {
-    position: relative;
-}
-
-.select-wrapper select {
-    width: 100%;
-    appearance: none;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid var(--border-color);
-    color: #fff;
-    padding: 14px 40px 14px 16px;
-    font-size: 0.95rem;
-    border-radius: 2px;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    transition: all 0.3s ease;
-}
-
-.select-wrapper select:focus {
-    border-color: #555;
-    background: rgba(255, 255, 255, 0.05);
-    box-shadow: 0 0 15px rgba(255, 255, 255, 0.03);
-}
-
-.select-caret {
-    position: absolute;
-    right: 14px;
-    top: 50%;
-    width: 10px;
-    height: 10px;
-    border-left: 1px solid var(--text-sub);
-    border-bottom: 1px solid var(--text-sub);
-    transform: translateY(-60%) rotate(-45deg);
-    pointer-events: none;
-}
-
-.custom-channel {
-    display: none;
-    margin-top: 0.75rem;
-}
-
-.custom-channel.active {
-    display: block;
-}
-
-.channel-control {
-    margin-top: 1.25rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.channel-control label {
-    font-size: 0.7rem;
-    color: var(--text-sub);
-    letter-spacing: 1px;
-    text-transform: uppercase;
-}
-
-.field-hint {
-    font-size: 0.75rem;
-    color: var(--text-sub);
-}
-
-.pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.2rem 0.6rem;
-    border: 1px solid var(--border-light);
-    border-radius: 999px;
-    font-size: 0.7rem;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--text-sub);
-    background: rgba(255, 255, 255, 0.02);
+    border-color: var(--input-border-strong);
+    background: var(--input-bg-alt);
 }
 
 .channel-pill::before {
